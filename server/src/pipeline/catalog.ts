@@ -15,6 +15,50 @@ export interface CatalogCandidate {
   } | null;
 }
 
+export interface ReadyGuideMatch {
+  product_id: string;
+  product_name: string;
+  item_number: string;
+  variant: string | null;
+  guide_id: string;
+  guide_title: string;
+  step_count: number;
+}
+
+/**
+ * An exact IKEA article number is stronger than a model's product-name guess.
+ * If we have already built that product's guide, return it without sending the
+ * same manual through the expensive orchestration pipeline again.
+ */
+export async function findReadyGuideByItemNumbers(itemNumbers: string[]): Promise<ReadyGuideMatch | null> {
+  const digits = [...new Set(itemNumbers.map(digitsOnly).filter((value) => value.length === 8))];
+  if (digits.length === 0) return null;
+
+  return maybeOne<ReadyGuideMatch>(
+    `SELECT p.id AS product_id, p.name AS product_name, p.ikea_item_number AS item_number,
+            p.metadata->>'variant' AS variant, ag.id AS guide_id, ag.title AS guide_title,
+            steps.step_count
+       FROM products p
+       JOIN assembly_guides ag ON ag.product_id = p.id AND ag.status = 'ready'
+       CROSS JOIN LATERAL (
+         SELECT count(*)::int AS step_count FROM assembly_steps s WHERE s.guide_id = ag.id
+       ) steps
+      WHERE steps.step_count > 0
+        AND (
+          regexp_replace(p.ikea_item_number, '\\D', '', 'g') = ANY($1::text[])
+          OR EXISTS (
+            SELECT 1 FROM product_aliases a
+             WHERE a.product_id = p.id AND a.alias_kind = 'item_number'
+               AND regexp_replace(a.normalized_alias, '\\D', '', 'g') = ANY($1::text[])
+          )
+        )
+      ORDER BY (ag.prompt_version LIKE '%hand-reviewed%') DESC,
+               ag.published_at DESC NULLS LAST, ag.updated_at DESC
+      LIMIT 1`,
+    [digits],
+  );
+}
+
 /** Latest linked manual for a product; verified = the PDF bytes are actually on disk in storage. */
 async function manualFor(productId: string): Promise<CatalogCandidate["manual"]> {
   return (

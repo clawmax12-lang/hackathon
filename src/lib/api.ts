@@ -85,6 +85,7 @@ export function openScanEvents(scanId: string, onEvent: (e: ScanEvent) => void):
 
 export async function getScan(scanId: string): Promise<{
   status: string;
+  extractedItemNumber: string | null;
   stageIndex: number;
   match: { productId: string; name: string; confidence: number } | null;
   guideId: string | null;
