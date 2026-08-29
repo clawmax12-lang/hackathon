@@ -36,10 +36,6 @@ service "api" {
   build   = build.api
   command = "npx tsx scripts/start-api-with-catalog-sync.ts"
 
-  pre_deploy {
-    command = "npx tsx scripts/seed-ikea-cloud-metadata.ts"
-  }
-
   endpoint {
     public = true
 
