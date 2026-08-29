@@ -13,3 +13,4 @@ server/assets/sample/*.jpg
 server/assets/sample/*.png
 # local fallback storage for the api service
 var/
+*.tsbuildinfo
