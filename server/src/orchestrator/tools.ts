@@ -144,12 +144,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         "estimated_seconds",
         "focus_page",
         "focus_region",
+        "needs_review",
       ],
       properties: {
         step_number: { type: "integer", minimum: 1 },
         title: { type: "string", description: "Short Swedish step title" },
         instruction: { type: "string", description: "1-2 Swedish sentences shown as text" },
-        narration_script: { type: "string", description: "2-4 Swedish sentences of spoken narration" },
+        narration_script: { type: "string", description: "At most 2 short Swedish sentences of spoken narration" },
         safety_warning: { type: ["string", "null"] },
         manual_pages: { type: "array", items: { type: "integer" } },
         parts: { type: "array", items: { type: "string" } },
@@ -157,6 +158,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         estimated_seconds: { type: "integer" },
         focus_page: { type: "integer", description: "Manual page shown during this step" },
         focus_region: { type: "string", enum: ["top", "center", "bottom", "full"] },
+        needs_review: { type: "boolean", description: "True when the manual image is ambiguous; never guess." },
       },
     },
   },
@@ -262,6 +264,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         type: "product_match",
         productId,
         name: product.name,
+        itemNumber: product.ikea_item_number,
         confidence,
         method: String(input.method),
         candidates,
@@ -326,13 +329,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       if (!ctx.state.guideId) return JSON.stringify({ ok: false, error: "call plan_assembly_guide first" });
       const focus = JSON.stringify({ page: Number(input.focus_page) || 1, region: String(input.focus_region ?? "full") });
       await query(
-        `INSERT INTO assembly_steps (guide_id, step_number, title, instruction, narration_script, safety_warning, estimated_seconds, manual_pages, parts, tools, visual_prompt)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO assembly_steps (guide_id, step_number, title, instruction, narration_script, safety_warning, estimated_seconds, manual_pages, parts, tools, visual_prompt, needs_review)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (guide_id, step_number) DO UPDATE
            SET title = EXCLUDED.title, instruction = EXCLUDED.instruction, narration_script = EXCLUDED.narration_script,
                safety_warning = EXCLUDED.safety_warning, estimated_seconds = EXCLUDED.estimated_seconds,
                manual_pages = EXCLUDED.manual_pages, parts = EXCLUDED.parts, tools = EXCLUDED.tools,
-               visual_prompt = EXCLUDED.visual_prompt, updated_at = now()`,
+               visual_prompt = EXCLUDED.visual_prompt, needs_review = EXCLUDED.needs_review, updated_at = now()`,
         [
           ctx.state.guideId,
           Number(input.step_number),
@@ -345,6 +348,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           JSON.stringify((input.parts as string[]) ?? []),
           JSON.stringify((input.tools as string[]) ?? []),
           focus,
+          Boolean(input.needs_review),
         ],
       );
       return JSON.stringify({ ok: true });
@@ -357,6 +361,8 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       stage(ctx, "rendering", "started", "Skapar berättarröst…");
       const res = await synthesizeNarration(ctx.state.guideId);
       ctx.state.stepCount = res.steps.length;
+      await query("UPDATE assembly_guides SET status='ready',published_at=NOW(),updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
+      stage(ctx, "rendering", "done", `${res.steps.length} ljudsteg klara`);
       return JSON.stringify(res);
     }
 
@@ -392,13 +398,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 /** Emits the terminal SSE events once the orchestrator (real or mock) is done. */
 export async function finalizeRun(ctx: ToolContext): Promise<void> {
   const fin = ctx.state.finished;
-  if (fin?.outcome === "success" && ctx.state.guideId && ctx.state.videoUrl) {
+  if (fin?.outcome === "success" && ctx.state.guideId) {
     const stepCount = ctx.state.stepCount ?? 0;
     emit(ctx, {
       type: "guide_ready",
       guideId: ctx.state.guideId,
       title: ctx.state.guideTitle ?? "Din monteringsguide",
-      videoUrl: ctx.state.videoUrl,
+      videoUrl: ctx.state.videoUrl ?? "",
       thumbnailUrl: ctx.state.thumbnailUrl ?? "",
       durationSeconds: ctx.state.durationSeconds ?? 0,
       stepCount,

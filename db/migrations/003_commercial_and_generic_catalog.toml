@@ -1,0 +1,33 @@
+# Commercial evidence and manufacturer-neutral catalog fields.
+
+[[actions]]
+type = "custom"
+start = "ALTER TABLE products ADD COLUMN IF NOT EXISTS manufacturer TEXT"
+
+[[actions]]
+type = "custom"
+start = "ALTER TABLE products ADD COLUMN IF NOT EXISTS variant TEXT"
+
+[[actions]]
+type = "custom"
+start = "ALTER TABLE products ADD COLUMN IF NOT EXISTS article_no TEXT"
+
+[[actions]]
+type = "custom"
+start = "UPDATE products SET manufacturer=COALESCE(manufacturer, metadata->>'manufacturer', 'IKEA'), variant=COALESCE(variant, metadata->>'variant'), article_no=COALESCE(article_no, ikea_item_number)"
+
+[[actions]]
+type = "custom"
+start = "CREATE UNIQUE INDEX IF NOT EXISTS products_manufacturer_article_unique ON products (manufacturer, article_no) WHERE manufacturer IS NOT NULL AND article_no IS NOT NULL"
+
+[[actions]]
+type = "custom"
+start = "CREATE TABLE IF NOT EXISTS misses (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), scan_id UUID REFERENCES furniture_scans(id), query TEXT NOT NULL, ts TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid BOOLEAN NOT NULL DEFAULT FALSE, paid_at TIMESTAMPTZ, stripe_session_id TEXT)"
+
+[[actions]]
+type = "custom"
+start = "CREATE UNIQUE INDEX IF NOT EXISTS misses_scan_unique ON misses (scan_id) WHERE scan_id IS NOT NULL"
+
+[[actions]]
+type = "custom"
+start = "CREATE INDEX IF NOT EXISTS misses_paid_ts_idx ON misses (paid, ts DESC)"

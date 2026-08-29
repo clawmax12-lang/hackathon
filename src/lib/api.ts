@@ -6,6 +6,7 @@ export type ScanEvent =
       type: "product_match";
       productId: string;
       name: string;
+      itemNumber?: string;
       variant?: string;
       confidence: number;
       method: string;
@@ -25,6 +26,10 @@ export interface GuideStep {
   parts: string[];
   tools: string[];
   manualPages: number[];
+  imageUrl: string | null;
+  audioUrl: string | null;
+  focusRegion: "top" | "center" | "bottom" | "full";
+  needsReview: boolean;
 }
 
 export interface GuideJson {
@@ -36,7 +41,19 @@ export interface GuideJson {
   videoUrl: string | null;
   thumbnailUrl: string | null;
   durationSeconds: number;
+  manualUrl: string | null;
   steps: GuideStep[];
+}
+
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN ?? "").replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  return `${API_ORIGIN}${path}`;
+}
+
+function absoluteAssetUrl(url: string | null): string | null {
+  if (!url || /^https?:\/\//.test(url)) return url;
+  return apiUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
 export async function startScan(opts: { photo?: File; demo?: boolean; note?: string }): Promise<{ scanId: string }> {
@@ -44,14 +61,14 @@ export async function startScan(opts: { photo?: File; demo?: boolean; note?: str
   if (opts.photo) form.append("photo", opts.photo);
   if (opts.demo) form.append("demo", "1");
   if (opts.note) form.append("note", opts.note);
-  const res = await fetch("/api/scans", { method: "POST", body: form });
+  const res = await fetch(apiUrl("/api/scans"), { method: "POST", body: form });
   if (!res.ok) throw new Error(`startScan failed: ${res.status}`);
   return res.json();
 }
 
 /** Opens the SSE stream; the browser's EventSource handles Last-Event-ID replay on reconnect. */
 export function openScanEvents(scanId: string, onEvent: (e: ScanEvent) => void): () => void {
-  const source = new EventSource(`/api/scans/${scanId}/events`);
+  const source = new EventSource(apiUrl(`/api/scans/${scanId}/events`));
   const types = ["stage", "product_match", "render_progress", "guide_ready", "error", "done"] as const;
   for (const type of types) {
     source.addEventListener(type, (msg) => {
@@ -72,19 +89,29 @@ export async function getScan(scanId: string): Promise<{
   match: { productId: string; name: string; confidence: number } | null;
   guideId: string | null;
 }> {
-  const res = await fetch(`/api/scans/${scanId}`);
+  const res = await fetch(apiUrl(`/api/scans/${scanId}`));
   if (!res.ok) throw new Error(`getScan failed: ${res.status}`);
   return res.json();
 }
 
 export async function getGuide(guideId: string): Promise<GuideJson> {
-  const res = await fetch(`/api/guides/${guideId}`);
+  const res = await fetch(apiUrl(`/api/guides/${guideId}`));
   if (!res.ok) throw new Error(`getGuide failed: ${res.status}`);
-  return res.json();
+  const guide = await res.json() as GuideJson;
+  return {
+    ...guide,
+    videoUrl: absoluteAssetUrl(guide.videoUrl),
+    thumbnailUrl: absoluteAssetUrl(guide.thumbnailUrl),
+    steps: guide.steps.map((step) => ({
+      ...step,
+      imageUrl: absoluteAssetUrl(step.imageUrl),
+      audioUrl: absoluteAssetUrl(step.audioUrl),
+    })),
+  };
 }
 
 export async function rematch(scanId: string, productId: string): Promise<void> {
-  const res = await fetch(`/api/scans/${scanId}/rematch`, {
+  const res = await fetch(apiUrl(`/api/scans/${scanId}/rematch`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ productId }),
@@ -93,11 +120,25 @@ export async function rematch(scanId: string, productId: string): Promise<void> 
 }
 
 export async function askQuestion(guideId: string, question: string): Promise<{ answer: string }> {
-  const res = await fetch(`/api/guides/${guideId}/questions`, {
+  const res = await fetch(apiUrl(`/api/guides/${guideId}/questions`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
   });
   if (!res.ok) throw new Error(`askQuestion failed: ${res.status}`);
   return res.json();
+}
+
+export async function getPublicConfig(): Promise<{ stripePaymentLinkUrl: string | null; guidePriceSek: number }> {
+  const res = await fetch(apiUrl("/api/config"));
+  if (!res.ok) throw new Error(`getPublicConfig failed: ${res.status}`);
+  return res.json();
+}
+
+export async function logMiss(scanId: string | null, query: string): Promise<void> {
+  await fetch(apiUrl("/api/misses"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scanId, query }),
+  });
 }

@@ -123,9 +123,8 @@ export async function runMockOrchestrator(ctx: ToolContext): Promise<void> {
       await call("report_progress", { stage_index: 3, message: "Återanvänder befintlig guideplan." });
     }
 
-    // Stage 4: narration + render (both real)
+    // Stage 4: real per-step narration; the player mounts manual pages directly.
     await call("synthesize_narration");
-    await call("render_video");
     await call("finish", { outcome: "success", message: "Din monteringsguide är klar!" });
   } catch (err) {
     await call("finish", { outcome: "failed", message: `Något gick fel: ${(err as Error).message}` }).catch(() => {});
