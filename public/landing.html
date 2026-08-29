@@ -531,16 +531,17 @@
       card.style.setProperty('--my', (e.clientY - rect.top) + 'px');
     });
   });
-  // ---- waitlist storage logic ----
+  // ---- waitlist API logic (server/src/routes/waitlist.ts -> waitlist_signups table) ----
   const counterEl = document.getElementById('counter');
   async function refreshCount(){
     try{
-      const res = await window.storage.list('waitlist:', true);
-      const n = res && res.keys ? res.keys.length : 0;
-      counterEl.innerHTML = n > 0
-        ? `<strong>${n}</strong> ${n === 1 ? 'person' : 'personer'} står redan i kön`
+      const res = await fetch('/api/waitlist/count');
+      if(!res.ok) throw new Error(String(res.status));
+      const { count } = await res.json();
+      counterEl.innerHTML = count > 0
+        ? `<strong>${count}</strong> ${count === 1 ? 'person' : 'personer'} står redan i kön`
         : 'Bli den första i kön';
-      return n;
+      return count;
     }catch(err){
       counterEl.textContent = '';
       return null;
@@ -563,21 +564,21 @@
       const originalText = btn.textContent;
       btn.textContent = 'Ställer dig i kön…';
       try{
-        const key = 'waitlist:' + email;
-        let already = false;
-        try{
-          await window.storage.get(key, true);
-          already = true;
-        }catch(_){ already = false; }
-        if(!already){
-          await window.storage.set(key, JSON.stringify({ email, joinedAt: new Date().toISOString() }), true);
-        }
-        const n = await refreshCount();
+        const res = await fetch('/api/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if(!res.ok) throw new Error(String(res.status));
+        const { alreadyJoined, count } = await res.json();
+        counterEl.innerHTML = count > 0
+          ? `<strong>${count}</strong> ${count === 1 ? 'person' : 'personer'} står redan i kön`
+          : 'Bli den första i kön';
         input.value = '';
         if(noteEl){
-          noteEl.textContent = already
+          noteEl.textContent = alreadyJoined
             ? 'Du står redan i kön ✓'
-            : `Du står i kön ✓ ${n ? '(#' + n + ')' : ''}`;
+            : `Du står i kön ✓ (#${count})`;
           noteEl.className = 'form-note success';
         }
       }catch(err){
