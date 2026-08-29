@@ -28,8 +28,7 @@ service "web" {
 }
 
 build "api" {
-  base    = "node"
-  command = "npm ci"
+  dockerfile = "Dockerfile.api"
 }
 
 service "api" {

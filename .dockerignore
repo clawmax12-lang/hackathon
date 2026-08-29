@@ -1,0 +1,12 @@
+.git
+.context
+.specific
+.env
+node_modules
+dist
+var
+*.local
+*.tsbuildinfo
+server/assets/sample/*.pdf
+server/assets/sample/*.jpg
+server/assets/sample/*.png
