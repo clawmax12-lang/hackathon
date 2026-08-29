@@ -11,15 +11,23 @@
     "start": "serve dist -l $PORT"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@elevenlabs/elevenlabs-js": "^2.65.0",
     "@fontsource-variable/manrope": "^5.2.8",
-    "crypto": "^1.0.1",
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.5",
     "lucide-react": "^0.468.0",
+    "p-limit": "^7.3.1",
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "serve": "^14.2.6"
+    "serve": "^14.2.6",
+    "tsx": "^4.23.12",
+    "zod": "^4.5.2"
   },
   "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",

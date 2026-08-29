@@ -1,0 +1,26 @@
+# Pipeline additions: fuzzy product matching + per-step narration script storage.
+
+[[actions]]
+type = "custom"
+start = "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+
+[[actions]]
+type = "add_column"
+table = "assembly_steps"
+
+  [actions.column]
+  name = "narration_script"
+  type = "TEXT"
+  nullable = true
+
+[[actions]]
+type = "custom"
+start = "CREATE INDEX IF NOT EXISTS idx_products_normalized_name_trgm ON products USING gin (normalized_name gin_trgm_ops)"
+
+[[actions]]
+type = "custom"
+start = "CREATE UNIQUE INDEX IF NOT EXISTS uq_assembly_steps_guide_step ON assembly_steps (guide_id, step_number)"
+
+[[actions]]
+type = "custom"
+start = "CREATE UNIQUE INDEX IF NOT EXISTS uq_generated_videos_guide ON generated_videos (guide_id)"
