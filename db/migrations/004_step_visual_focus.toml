@@ -1,0 +1,21 @@
+# assembly_steps.visual_prompt was being overloaded to store the manual-page
+# crop region as JSON. Give focus its own columns so visual_prompt can hold
+# an actual image-generation prompt for the illustrated-video renderer.
+
+[[actions]]
+type = "add_column"
+table = "assembly_steps"
+
+  [actions.column]
+  name = "focus_page"
+  type = "INTEGER"
+  nullable = true
+
+[[actions]]
+type = "add_column"
+table = "assembly_steps"
+
+  [actions.column]
+  name = "focus_region"
+  type = "TEXT"
+  nullable = true

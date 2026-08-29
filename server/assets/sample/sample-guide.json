@@ -10,7 +10,8 @@
     "tools": ["stjärnskruvmejsel", "hammare"],
     "estimated_seconds": 25,
     "focus_page": 2,
-    "focus_region": "full"
+    "focus_region": "full",
+    "visual_prompt": "Overhead view of hands laying out flat cabinet panels, shelf boards, wooden dowels and screws in neat rows on a soft cloth."
   },
   {
     "step_number": 2,
@@ -23,7 +24,8 @@
     "tools": [],
     "estimated_seconds": 25,
     "focus_page": 4,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Close-up of hands pressing wooden dowels into a row of drilled holes along the edge of a side panel."
   },
   {
     "step_number": 3,
@@ -36,7 +38,8 @@
     "tools": [],
     "estimated_seconds": 30,
     "focus_page": 6,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Hands fitting a short vertical divider panel straight down onto dowel pegs protruding from a long horizontal side panel."
   },
   {
     "step_number": 4,
@@ -49,7 +52,8 @@
     "tools": [],
     "estimated_seconds": 30,
     "focus_page": 8,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Hands sliding a short shelf board flat into place between two divider panels, forming one square cell of a grid."
   },
   {
     "step_number": 5,
@@ -62,7 +66,8 @@
     "tools": [],
     "estimated_seconds": 35,
     "focus_page": 10,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Two pairs of hands lowering a second long side panel evenly down onto an assembled grid of dowels and dividers."
   },
   {
     "step_number": 6,
@@ -75,7 +80,8 @@
     "tools": ["stjärnskruvmejsel"],
     "estimated_seconds": 30,
     "focus_page": 12,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Hand driving a screwdriver into a corner screw at the outer edge of the assembled frame, close-up on the corner joint."
   },
   {
     "step_number": 7,
@@ -88,7 +94,8 @@
     "tools": ["hammare"],
     "estimated_seconds": 35,
     "focus_page": 15,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Hands holding a hammer, nailing a thin backing panel into the rear edge of the frame, which lies face-down."
   },
   {
     "step_number": 8,
@@ -101,7 +108,8 @@
     "tools": [],
     "estimated_seconds": 25,
     "focus_page": 17,
-    "focus_region": "center"
+    "focus_region": "center",
+    "visual_prompt": "Two pairs of hands lifting the fully assembled shelving unit upright from the floor to a standing position."
   },
   {
     "step_number": 9,
@@ -114,6 +122,7 @@
     "tools": ["stjärnskruvmejsel", "borrmaskin"],
     "estimated_seconds": 35,
     "focus_page": 19,
-    "focus_region": "top"
+    "focus_region": "top",
+    "visual_prompt": "Close-up of a hand using a drill to fix an L-shaped metal wall-anchor bracket to the top rear edge of the shelf against a wall."
   }
 ]

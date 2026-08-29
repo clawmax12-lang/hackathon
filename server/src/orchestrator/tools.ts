@@ -144,6 +144,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         "estimated_seconds",
         "focus_page",
         "focus_region",
+        "visual_prompt",
       ],
       properties: {
         step_number: { type: "integer", minimum: 1 },
@@ -157,6 +158,11 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         estimated_seconds: { type: "integer" },
         focus_page: { type: "integer", description: "Manual page shown during this step" },
         focus_region: { type: "string", enum: ["top", "center", "bottom", "full"] },
+        visual_prompt: {
+          type: "string",
+          description:
+            "English image-generation prompt for this step only (no style restatement, no faces) — see VISUAL_PROMPT rules",
+        },
       },
     },
   },
@@ -324,14 +330,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
     case "write_step_to_db": {
       if (!ctx.state.guideId) return JSON.stringify({ ok: false, error: "call plan_assembly_guide first" });
-      const focus = JSON.stringify({ page: Number(input.focus_page) || 1, region: String(input.focus_region ?? "full") });
       await query(
-        `INSERT INTO assembly_steps (guide_id, step_number, title, instruction, narration_script, safety_warning, estimated_seconds, manual_pages, parts, tools, visual_prompt)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO assembly_steps (guide_id, step_number, title, instruction, narration_script, safety_warning, estimated_seconds, manual_pages, parts, tools, focus_page, focus_region, visual_prompt)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (guide_id, step_number) DO UPDATE
            SET title = EXCLUDED.title, instruction = EXCLUDED.instruction, narration_script = EXCLUDED.narration_script,
                safety_warning = EXCLUDED.safety_warning, estimated_seconds = EXCLUDED.estimated_seconds,
                manual_pages = EXCLUDED.manual_pages, parts = EXCLUDED.parts, tools = EXCLUDED.tools,
+               focus_page = EXCLUDED.focus_page, focus_region = EXCLUDED.focus_region,
                visual_prompt = EXCLUDED.visual_prompt, updated_at = now()`,
         [
           ctx.state.guideId,
@@ -344,7 +350,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
           (input.manual_pages as number[]) ?? [],
           JSON.stringify((input.parts as string[]) ?? []),
           JSON.stringify((input.tools as string[]) ?? []),
-          focus,
+          Number(input.focus_page) || 1,
+          String(input.focus_region ?? "full"),
+          String(input.visual_prompt ?? ""),
         ],
       );
       return JSON.stringify({ ok: true });
