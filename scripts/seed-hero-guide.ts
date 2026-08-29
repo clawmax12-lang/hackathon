@@ -107,9 +107,9 @@ async function main(): Promise<void> {
   for (const [index, step] of STEPS.entries()) {
     await query(
       `INSERT INTO assembly_steps
-         (guide_id,step_number,title,instruction,narration_script,safety_warning,estimated_seconds,manual_pages,parts,tools,visual_prompt)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11)`,
-      [guide.id, index + 1, step.title, step.instruction, step.narration, step.warning, step.seconds, [step.page], JSON.stringify(step.parts), JSON.stringify(step.tools), JSON.stringify({ page: step.page, region: step.region, motion: "slow_zoom" })],
+         (guide_id,step_number,title,instruction,narration_script,safety_warning,estimated_seconds,manual_pages,parts,tools,focus_page,focus_region)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12)`,
+      [guide.id, index + 1, step.title, step.instruction, step.narration, step.warning, step.seconds, [step.page], JSON.stringify(step.parts), JSON.stringify(step.tools), step.page, step.region],
     );
   }
 
