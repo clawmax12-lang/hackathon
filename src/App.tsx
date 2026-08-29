@@ -8,6 +8,8 @@ import {
   MessageCirclePlus,
   RefreshCw,
   Search,
+  Send,
+  Sparkles,
   Video,
   X,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { openScanEvents, startScan, type ScanEvent } from "./lib/api";
 
 type CameraStatus = "starting" | "live" | "fallback";
 
@@ -28,28 +31,66 @@ type CapturedPhoto = {
   url: string;
 };
 
+type Phase = "compose" | "processing" | "result" | "error";
+
 const SUGGESTIONS = [
   "Scan package label",
   "Identify loose parts",
   "Create assembly guide",
 ];
 
+const STAGE_LABELS = [
+  "Reading the package label",
+  "Identifying the exact model",
+  "Finding the official instructions",
+  "Planning a clear assembly sequence",
+  "Creating your video guide",
+];
+
+type GuideResult = {
+  guideId: string;
+  title: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  stepCount: number;
+};
+
+async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: blob.type || "image/jpeg" });
+}
+
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function PromptBar({
   draft,
   photo,
+  submitting,
   onDraftChange,
   onPhotoClick,
   onRemovePhoto,
+  onSubmit,
   inputRef,
 }: {
   draft: string;
   photo: CapturedPhoto | null;
+  submitting: boolean;
   onDraftChange: (value: string) => void;
   onPhotoClick: () => void;
   onRemovePhoto: () => void;
+  onSubmit: () => void;
   inputRef: RefObject<HTMLInputElement | null>;
 }) {
-  const submit = (event: FormEvent) => event.preventDefault();
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (photo && !submitting) onSubmit();
+  };
 
   return (
     <form className={`prompt-bar ${photo ? "has-photo" : ""}`} onSubmit={submit}>
@@ -70,6 +111,11 @@ function PromptBar({
         placeholder={photo ? "Add a message" : "Ask anything"}
         onChange={(event) => onDraftChange(event.target.value)}
       />
+      {photo && (
+        <button className="prompt-send-button" type="submit" aria-label="Create assembly guide" disabled={submitting}>
+          <Send size={18} strokeWidth={2.4} />
+        </button>
+      )}
       <button
         className="prompt-camera-button"
         type="button"
@@ -274,14 +320,98 @@ function CameraCard({
   );
 }
 
+function ProcessingLayer({
+  stageIndex,
+  stageDetail,
+  matchedProduct,
+  onCancel,
+}: {
+  stageIndex: number;
+  stageDetail: string | null;
+  matchedProduct: { name: string; confidence: number } | null;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="status-layer" aria-label="Creating your assembly guide">
+      <button className="camera-control camera-control--back" type="button" aria-label="Cancel" onClick={onCancel}>
+        <ChevronLeft size={24} strokeWidth={2.7} />
+      </button>
+      <div className="status-card">
+        <Sparkles size={26} strokeWidth={2} className="status-card__icon" />
+        <h2>Building your guide</h2>
+        {matchedProduct && (
+          <p className="status-card__match">
+            Matched: {matchedProduct.name} · {Math.round(matchedProduct.confidence * 100)}%
+          </p>
+        )}
+        <ol className="stage-list">
+          {STAGE_LABELS.map((label, index) => (
+            <li
+              key={label}
+              className={index < stageIndex ? "is-done" : index === stageIndex ? "is-active" : "is-pending"}
+            >
+              <span className="stage-list__marker" aria-hidden="true" />
+              <span>{label}</span>
+            </li>
+          ))}
+        </ol>
+        {stageDetail && <p className="status-card__detail">{stageDetail}</p>}
+      </div>
+    </section>
+  );
+}
+
+function ResultLayer({ guide, onReset }: { guide: GuideResult; onReset: () => void }) {
+  return (
+    <section className="status-layer" aria-label="Your assembly guide is ready">
+      <button className="camera-control camera-control--back" type="button" aria-label="Start new workspace" onClick={onReset}>
+        <ChevronLeft size={24} strokeWidth={2.7} />
+      </button>
+      <div className="status-card status-card--result">
+        <video className="result-video" src={guide.videoUrl} poster={guide.thumbnailUrl} controls playsInline />
+        <h2>{guide.title}</h2>
+        <p className="status-card__match">
+          {guide.stepCount} steps · about {formatDuration(guide.durationSeconds)}
+        </p>
+        <button className="status-card__primary" type="button" onClick={onReset}>
+          Start a new scan
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ErrorLayer({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <section className="status-layer" aria-label="Something went wrong">
+      <div className="status-card">
+        <h2>Something went wrong</h2>
+        <p className="status-card__detail">{message}</p>
+        <button className="status-card__primary" type="button" onClick={onRetry}>
+          Try again
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [cameraOpen, setCameraOpen] = useState(true);
   const [cameraClosing, setCameraClosing] = useState(false);
   const [draft, setDraft] = useState("");
   const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
+  const [phase, setPhase] = useState<Phase>("compose");
+  const [stageIndex, setStageIndex] = useState(0);
+  const [stageDetail, setStageDetail] = useState<string | null>(null);
+  const [matchedProduct, setMatchedProduct] = useState<{ name: string; confidence: number } | null>(null);
+  const [guide, setGuide] = useState<GuideResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => unsubscribeRef.current?.(), []);
 
   const closeCamera = useCallback(() => {
     if (cameraClosing) return;
@@ -306,16 +436,52 @@ export default function App() {
     if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
   }, []);
 
-  const newWorkspace = () => {
-    setDraft("");
-    setPhoto(null);
-    openCamera();
-  };
-
   const addPhoto = (captured: CapturedPhoto) => {
     setPhoto(captured);
     closeCamera();
   };
+
+  const runScan = useCallback(async (opts: { photo?: CapturedPhoto; demo?: boolean; note?: string }) => {
+    setPhase("processing");
+    setStageIndex(0);
+    setStageDetail(null);
+    setMatchedProduct(null);
+    setGuide(null);
+    setErrorMessage(null);
+    try {
+      const file = opts.photo ? await dataUrlToFile(opts.photo.url, opts.photo.name) : undefined;
+      const { scanId } = await startScan({ photo: file, demo: opts.demo, note: opts.note });
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = openScanEvents(scanId, (event: ScanEvent) => {
+        if (event.type === "stage") {
+          setStageIndex(event.index);
+          if (event.detail) setStageDetail(event.detail);
+        } else if (event.type === "product_match") {
+          setMatchedProduct({ name: event.name, confidence: event.confidence });
+        } else if (event.type === "guide_ready") {
+          setGuide(event);
+          setPhase("result");
+        } else if (event.type === "error") {
+          setErrorMessage(event.message);
+          setPhase("error");
+        }
+      });
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Something went wrong.");
+      setPhase("error");
+    }
+  }, []);
+
+  const resetToCompose = useCallback(() => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
+    setPhase("compose");
+    setPhoto(null);
+    setDraft("");
+    openCamera();
+  }, [openCamera]);
+
+  const submitting = phase === "processing";
 
   const orderedSuggestions = SUGGESTIONS.map((_, index) => SUGGESTIONS[(index + suggestionOffset) % SUGGESTIONS.length]);
 
@@ -326,46 +492,68 @@ export default function App() {
           <History size={27} strokeWidth={2.2} />
         </button>
         <h1>New workspace</h1>
-        <button className="header-action header-action--new" type="button" aria-label="Start new workspace" onClick={newWorkspace}>
+        <button className="header-action header-action--new" type="button" aria-label="Start new workspace" onClick={resetToCompose}>
           <MessageCirclePlus size={28} strokeWidth={2.15} />
         </button>
       </header>
 
-      <section className="home-content" inert={cameraOpen} aria-hidden={cameraOpen ? "true" : undefined}>
-        <div className="suggestion-stack">
-          <div className="suggestion-list">
-            {orderedSuggestions.map((suggestion) => (
-              <button
-                key={suggestion}
-                type="button"
-                onClick={() => {
-                  setDraft(suggestion);
-                  window.setTimeout(() => inputRef.current?.focus(), 0);
-                }}
-              >
-                {suggestion}
-              </button>
-            ))}
+      {phase === "compose" && (
+        <section className="home-content" inert={cameraOpen} aria-hidden={cameraOpen ? "true" : undefined}>
+          <div className="suggestion-stack">
+            <div className="suggestion-list">
+              {orderedSuggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => {
+                    setDraft(suggestion);
+                    window.setTimeout(() => inputRef.current?.focus(), 0);
+                  }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+            <button className="refresh-suggestions" type="button" aria-label="Refresh suggestions" onClick={() => setSuggestionOffset((offset) => (offset + 1) % SUGGESTIONS.length)}>
+              <RefreshCw size={21} strokeWidth={2.2} />
+            </button>
           </div>
-          <button className="refresh-suggestions" type="button" aria-label="Refresh suggestions" onClick={() => setSuggestionOffset((offset) => (offset + 1) % SUGGESTIONS.length)}>
-            <RefreshCw size={21} strokeWidth={2.2} />
+
+          <button className="demo-trigger" type="button" onClick={() => runScan({ demo: true })}>
+            <Sparkles size={16} strokeWidth={2.3} />
+            Try the demo product
           </button>
-        </div>
 
-        <div className="prompt-anchor">
-          <PromptBar
-            draft={draft}
-            photo={photo}
-            onDraftChange={setDraft}
-            onPhotoClick={openCamera}
-            onRemovePhoto={() => setPhoto(null)}
-            inputRef={inputRef}
-          />
-        </div>
-        <BottomTabs />
-      </section>
+          <div className="prompt-anchor">
+            <PromptBar
+              draft={draft}
+              photo={photo}
+              submitting={submitting}
+              onDraftChange={setDraft}
+              onPhotoClick={openCamera}
+              onRemovePhoto={() => setPhoto(null)}
+              onSubmit={() => runScan({ photo: photo ?? undefined, note: draft || undefined })}
+              inputRef={inputRef}
+            />
+          </div>
+          <BottomTabs />
+        </section>
+      )}
 
-      <CameraCard open={cameraOpen} closing={cameraClosing} onClose={closeCamera} onCapture={addPhoto} />
+      {phase === "processing" && (
+        <ProcessingLayer
+          stageIndex={stageIndex}
+          stageDetail={stageDetail}
+          matchedProduct={matchedProduct}
+          onCancel={resetToCompose}
+        />
+      )}
+
+      {phase === "result" && guide && <ResultLayer guide={guide} onReset={resetToCompose} />}
+
+      {phase === "error" && <ErrorLayer message={errorMessage ?? "Please try again."} onRetry={resetToCompose} />}
+
+      <CameraCard open={cameraOpen && phase === "compose"} closing={cameraClosing} onClose={closeCamera} onCapture={addPhoto} />
     </main>
   );
 }
