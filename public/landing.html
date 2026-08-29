@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Allen — gör om vilken manual som helst till en video</title>
+<title>Assembly — gör om vilken manual som helst till en video</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -97,23 +97,6 @@
     border-radius:2px;
     background:var(--pine);
   }
-  .nav-cta{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:12.5px;
-    font-weight:600;
-    letter-spacing:.03em;
-    color:var(--ink);
-    background:transparent;
-    border:1.5px solid var(--paper-line);
-    padding:9px 16px;
-    border-radius:999px;
-    cursor:pointer;
-    transition:border-color .15s ease, background .15s ease;
-  }
-  .nav-cta:hover{
-    border-color:var(--pine);
-    background:var(--pine-tint);
-  }
   /* ---------- hero ---------- */
   .hero{
     position:relative;
@@ -123,24 +106,6 @@
     display:flex;
     flex-direction:column;
     align-items:center;
-  }
-  .eyebrow-pill{
-    display:inline-flex;
-    align-items:center;
-    gap:9px;
-    background:var(--paper);
-    border:1px solid var(--paper-line);
-    padding:8px 16px 8px 12px;
-    border-radius:999px;
-    font-size:13px;
-    color:var(--ink-soft);
-    margin-bottom:30px;
-  }
-  .eyebrow-pill .dot{
-    width:7px;height:7px;
-    border-radius:50%;
-    background:var(--pine);
-    flex-shrink:0;
   }
   .hero h1{
     font-size:clamp(36px, 6vw, 68px);
@@ -497,17 +462,15 @@
 <div class="grid-bg"></div>
 <div class="wrap">
   <nav>
-    <div class="logo"><span class="logo-mark"></span>Allen</div>
-    <button class="nav-cta" onclick="document.getElementById('email-input').focus()">Ställ dig i kön</button>
+    <div class="logo"><span class="logo-mark"></span>Assembly</div>
   </nav>
   <section class="hero">
-    <span class="eyebrow-pill"><span class="dot"></span>Byggd på ett hackathon, en insexnyckel i taget</span>
     <h1>Gör om vilken monteringsanvisning som helst till en video du <em>faktiskt</em> kan följa.</h1>
-    <p class="sub">Ladda upp manualen — IKEA eller vad som helst. Vår AI gör om diagrammen till en kort, uttalad video steg för steg, så du slipper kisa på sprängskisser och räkna skruvar fel.</p>
+    <p class="sub">Skanna in ditt paket och få en instruktionsvideo för ditt projekt</p>
     <div class="hero-ctas">
       <form class="waitlist-form" id="waitlist-form">
         <input id="email-input" type="email" required placeholder="du@mejl.se" aria-label="E-postadress">
-        <button type="submit" class="join-btn" id="join-btn">Ställ dig i kön</button>
+        <button type="submit" class="join-btn" id="join-btn">Skicka</button>
       </form>
       <a href="#how" class="secondary-pill">
         <span class="icon" aria-hidden="true">
@@ -641,16 +604,16 @@
   </section>
   <section class="cta-band">
     <h2>Tappa aldrig tråden — eller skruvarna.</h2>
-    <p>Var först med att testa Allen. Vi lanserar med IKEA:s mest returnerade möbler.</p>
+    <p>Var först med att testa Assembly. Vi lanserar med IKEA:s mest returnerade möbler.</p>
     <form class="waitlist-form" id="waitlist-form-2">
       <input type="email" required placeholder="du@mejl.se" aria-label="E-postadress">
-      <button type="submit" class="join-btn">Ställ dig i kön</button>
+      <button type="submit" class="join-btn">Skicka</button>
     </form>
     <div class="form-note" id="form-note-2"></div>
     <div class="counter" id="counter">Laddar kölistan…</div>
   </section>
   <footer>
-    <span>Allen — byggd på ett hackathon, en insexnyckel i taget.</span>
+    <span>Assembly</span>
     <span>© 2026</span>
   </footer>
 </div>
@@ -696,7 +659,7 @@
       }
       btn.disabled = true;
       const originalText = btn.textContent;
-      btn.textContent = 'Ställer dig i kön…';
+      btn.textContent = 'Skickar…';
       try{
         const res = await fetch('/api/waitlist', {
           method: 'POST',
