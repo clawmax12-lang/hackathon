@@ -9,6 +9,7 @@ import { maybeOne } from "./db.js";
 import { mimeFor, pathFor } from "./storage.js";
 import { scans } from "./routes/scans.js";
 import { guides } from "./routes/guides.js";
+import { waitlist } from "./routes/waitlist.js";
 import { startJobRunner } from "./jobs.js";
 
 const exec = promisify(execFile);
@@ -16,6 +17,7 @@ const app = new Hono();
 
 app.route("/api/scans", scans);
 app.route("/api/guides", guides);
+app.route("/api/waitlist", waitlist);
 
 // Asset streaming with HTTP Range support (video seeking in Safari/Chrome).
 app.get("/api/assets/*", async (c) => {
