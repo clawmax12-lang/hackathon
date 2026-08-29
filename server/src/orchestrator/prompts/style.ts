@@ -1,4 +1,16 @@
-export const PROMPT_VERSION = "monterra-style-v1";
+export const PROMPT_VERSION = "monterra-style-v2";
+
+/**
+ * Fixed style block prepended in code (not restated by the LLM per step) to
+ * whatever image-generation prompt eventually renders visual_prompt into a
+ * keyframe. Keeping it centralized avoids per-step drift — the model only
+ * has to describe what's specific to that step; the "world" stays constant.
+ */
+export const VISUAL_STYLE_PREFIX =
+  "Flat ink-line technical illustration, single consistent linework style, cream/paper background (#f3eee1), " +
+  "dark ink outlines (#1c1712), one pine-green accent color (#2e4a3c) used sparingly for emphasis. " +
+  "Show only hands and the furniture parts/tools being manipulated — no face, no visible head, no body above the forearms. " +
+  "Composition matches an IKEA assembly-manual diagram: clean, uncluttered, orthographic or slight isometric angle, generous negative space.";
 
 /**
  * What makes an assembly video pedagogically good, distilled from the
@@ -37,7 +49,13 @@ KÄLLTROHET:
 - Om manualsidan är tvetydig: sätt needs_review=true. Steget visas då med bild och text utan berättarröst.
 - Sista stegets narration_script avslutas exakt med "Klart. Snyggt jobbat."
 
-Allt innehåll (titlar, instruktioner, varningar, berättarmanus) skrivs på svenska. Delar och verktyg namnges på svenska.`;
+VISUAL_PROMPT (engelska, inte svenska — det här är en bildgenereringsprompt, inte användartext):
+- En fast stilbeskrivning läggs till i kod (samma för alla steg i alla guider) — skriv INTE om stilen här.
+- Beskriv bara det som är specifikt för just detta steg, 1-2 meningar: vilka delar/verktyg som syns, vad händerna gör med dem, ungefärlig komposition (t.ex. "hands pressing a wooden dowel into a panel hole, close-up, screwdriver resting to the side").
+- Inga ansikten, ingen kropp ovanför underarmarna, inga personnamn, ingen text i bilden.
+- Håll det kortfattat — det är en scenbeskrivning, inte en berättelse.
+
+Allt användarvänt innehåll (titlar, instruktioner, varningar, berättarmanus) skrivs på svenska. Delar och verktyg namnges på svenska. visual_prompt är internt och skrivs på engelska.`;
 
 export function productPrompt(opts: {
   productName: string;
@@ -50,5 +68,5 @@ export function productPrompt(opts: {
 Manualen har ${opts.pageCount} sidor och visas som bilder nedan, i ordning (sida 1 först).
 IKEA-manualer är nästan ordlösa – läs diagrammen noga: skruvtyper, antal, riktningspilar och varningssymboler.
 ${opts.scrapedNotes ? `Anteckningar från produktsidan: ${opts.scrapedNotes}` : ""}
-Skapa nu monteringsguiden genom att anropa write_step_to_db för varje steg (gärna alla i samma svar), och välj för varje steg manual_pages och focus (sida + region) för bästa bildutsnitt.`;
+Skapa nu monteringsguiden genom att anropa write_step_to_db för varje steg (gärna alla i samma svar). Välj för varje steg manual_pages och focus (sida + region) för bästa bildutsnitt, och skriv visual_prompt på engelska enligt VISUAL_PROMPT-reglerna ovan.`;
 }

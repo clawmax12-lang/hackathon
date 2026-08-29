@@ -171,9 +171,10 @@ export async function renderVideo(
     manual_pages: number[] | null;
     parts: string[] | null;
     tools: string[] | null;
+    focus_region: string | null;
     visual_prompt: string | null;
   }>(
-    "SELECT step_number, title, instruction, safety_warning, manual_pages, parts, tools, visual_prompt FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number",
+    "SELECT step_number, title, instruction, safety_warning, manual_pages, parts, tools, focus_region, visual_prompt FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number",
     [guideId],
   );
   if (steps.length === 0) throw new Error("guide has no steps");
@@ -225,13 +226,11 @@ export async function renderVideo(
   for (const step of steps) {
     const pageNum = step.manual_pages?.[0] ?? null;
     const imagePath = pageNum && pageFiles[pageNum - 1] ? pageFiles[pageNum - 1] : pageFiles[0] ?? null;
-    let focus: SceneSpec["focusRegion"] = "full";
-    try {
-      const vp = step.visual_prompt ? JSON.parse(step.visual_prompt) : null;
-      if (vp?.region && ["top", "center", "bottom", "full"].includes(vp.region)) focus = vp.region;
-    } catch {
-      /* visual_prompt is free text; keep full */
-    }
+    const focus: SceneSpec["focusRegion"] = (["top", "center", "bottom", "full"] as const).includes(
+      step.focus_region as never,
+    )
+      ? (step.focus_region as SceneSpec["focusRegion"])
+      : "full";
     const audio = await audioFor(`audio/${guideId}/step-${String(step.step_number).padStart(2, "0")}.mp3`);
     scenes.push({
       name: `step-${step.step_number}`,

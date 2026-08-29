@@ -546,6 +546,200 @@ input:focus-visible {
 
 }
 
+/* Prompt bar: send button (shown once a photo is attached) */
+
+.prompt-bar.has-photo .prompt-camera-button {
+  right: 8px;
+  width: 40px;
+  background: var(--pill);
+  color: #ffffff;
+}
+
+.prompt-send-button {
+  position: absolute;
+  right: 56px;
+  bottom: 8px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  color: #090909;
+  background: #caff00;
+  border: 0;
+  border-radius: 20px;
+  transition: transform 100ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.prompt-send-button:hover:not(:disabled) {
+  background: #d6ff38;
+}
+
+.prompt-send-button:active:not(:disabled) {
+  transform: scale(0.93);
+}
+
+.prompt-send-button:disabled {
+  opacity: 0.5;
+}
+
+/* Demo trigger */
+
+.demo-trigger {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  color: #caff00;
+  white-space: nowrap;
+  background: var(--pill);
+  border: 1px solid rgba(202, 255, 0, 0.28);
+  border-radius: 999px;
+  transform: translateX(-50%);
+}
+
+.demo-trigger:hover {
+  border-color: rgba(202, 255, 0, 0.55);
+}
+
+.demo-trigger:active {
+  transform: translateX(-50%) scale(0.96);
+}
+
+/* Processing / result / error layers */
+
+.status-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--black);
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+
+.status-card__icon {
+  margin-bottom: 14px;
+  color: #caff00;
+}
+
+.status-card h2 {
+  margin: 0 0 6px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.status-card__match {
+  margin: 0 0 22px;
+  color: var(--placeholder);
+  font-size: 14px;
+}
+
+.status-card__detail {
+  margin: 18px 0 0;
+  color: var(--placeholder);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.stage-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--inactive);
+  font-size: 15px;
+  transition: color 200ms ease;
+}
+
+.stage-list li.is-done {
+  color: var(--placeholder);
+}
+
+.stage-list li.is-active {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.stage-list__marker {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.stage-list li.is-done .stage-list__marker {
+  background: var(--placeholder);
+  border-color: var(--placeholder);
+}
+
+.stage-list li.is-active .stage-list__marker {
+  border-color: #caff00;
+  border-top-color: transparent;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-card--result {
+  max-width: 420px;
+}
+
+.result-video {
+  width: 100%;
+  margin-bottom: 18px;
+  background: #111111;
+  border-radius: 16px;
+}
+
+.status-card__primary {
+  margin-top: 22px;
+  padding: 13px 26px;
+  color: #090909;
+  font-weight: 600;
+  background: #caff00;
+  border: 0;
+  border-radius: 999px;
+  transition: transform 100ms ease, background 140ms ease;
+}
+
+.status-card__primary:hover {
+  background: #d6ff38;
+}
+
+.status-card__primary:active {
+  transform: scale(0.96);
+}
+
 @media (min-width: 421px) {
   body {
     display: grid;
@@ -565,6 +759,10 @@ input:focus-visible {
 
   .camera-flash.is-visible {
     opacity: 0 !important;
+  }
+
+  .stage-list li.is-active .stage-list__marker {
+    animation: none !important;
   }
 }
 

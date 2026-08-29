@@ -41,10 +41,10 @@ guides.get("/:id", async (c) => {
     parts: string[] | null;
     tools: string[] | null;
     manual_pages: number[] | null;
-    visual_prompt: string | null;
+    focus_region: string | null;
     needs_review: boolean;
   }>(
-    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, parts, tools, manual_pages, visual_prompt, needs_review
+    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, parts, tools, manual_pages, focus_region, needs_review
        FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number`,
     [guideId],
   );
@@ -73,14 +73,7 @@ guides.get("/:id", async (c) => {
         : null,
       audioUrl: s.needs_review ? null : `/api/assets/audio/${guide.id}/step-${String(s.step_number).padStart(2, "0")}.mp3`,
       needsReview: s.needs_review,
-      focusRegion: (() => {
-        try {
-          const value = s.visual_prompt ? JSON.parse(s.visual_prompt) : null;
-          return ["top", "center", "bottom", "full"].includes(value?.region) ? value.region : "full";
-        } catch {
-          return "full";
-        }
-      })(),
+      focusRegion: s.focus_region && ["top", "center", "bottom", "full"].includes(s.focus_region) ? s.focus_region : "full",
     })),
   });
 });
