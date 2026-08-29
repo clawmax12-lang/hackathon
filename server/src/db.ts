@@ -2,30 +2,16 @@ import pg from "pg";
 import { config } from "./env.js";
 
 /**
- * Reshape (Specific's migration tool) exposes in-progress migrations through a
- * versioned schema (e.g. migration_002_pipeline_extras). Detect the newest one
- * and put it first on the search_path so the app always sees the latest shape.
+ * Specific's DATABASE_URL carries the routing and Reshape search-path options
+ * required by its Postgres proxy. Passing pg's `options` setting separately
+ * would replace those URL options and break pooled production connections.
  */
 let poolPromise: Promise<pg.Pool> | null = null;
 
 async function createPool(): Promise<pg.Pool> {
-  let searchPath = process.env.DATABASE_SEARCH_PATH ?? "";
-  if (!searchPath) {
-    const probe = new pg.Client({ connectionString: config.databaseUrl });
-    await probe.connect();
-    try {
-      const r = await probe.query(
-        "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'migration_%' ORDER BY schema_name DESC LIMIT 1",
-      );
-      searchPath = r.rows[0] ? `${r.rows[0].schema_name},public` : "public";
-    } finally {
-      await probe.end();
-    }
-  }
   return new pg.Pool({
     connectionString: config.databaseUrl,
     max: 8,
-    options: `-c search_path=${searchPath}`,
   });
 }
 

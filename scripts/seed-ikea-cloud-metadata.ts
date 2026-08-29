@@ -61,15 +61,7 @@ async function readManifest(): Promise<SeedManifest> {
 async function connect(): Promise<pg.Client> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is required");
-  const probe = new pg.Client({ connectionString });
-  await probe.connect();
-  const schemas = await probe.query<{ schema_name: string }>(
-    "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'migration_%' ORDER BY schema_name DESC LIMIT 1",
-  );
-  await probe.end();
-  const searchPath = process.env.DATABASE_SEARCH_PATH ||
-    (schemas.rows[0] ? `${schemas.rows[0].schema_name},public` : "public");
-  const client = new pg.Client({ connectionString, options: `-c search_path=${searchPath}` });
+  const client = new pg.Client({ connectionString });
   await client.connect();
   return client;
 }
