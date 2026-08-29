@@ -385,19 +385,37 @@ async function verifyDatabase(
 async function main(): Promise<void> {
   const manifest = await readManifest();
   const storageDir = path.resolve(process.env.STORAGE_DIR ?? ".specific/keys/default/data/volumes/api/storage");
-  const uniqueManuals = new Map<string, SeedManual>();
-  for (const manual of manifest.products.flatMap((product) => product.manuals)) uniqueManuals.set(manual.url, manual);
-  const preparedManuals = new Map<string, StoredManual>();
-  const limit = pLimit(4);
-  await Promise.all(
-    [...uniqueManuals.values()].map((manual) =>
-      limit(async () => preparedManuals.set(manual.url, await ensureManual(manual, storageDir))),
-    ),
-  );
-
   const client = await connect();
   let batchId = "";
+  let lockAcquired = false;
   try {
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS acquired",
+      ["monterra:ikea-cloud-seed-v1"],
+    );
+    lockAcquired = lock.rows[0]?.acquired === true;
+    if (!lockAcquired) {
+      console.log("[catalog-sync] another verified manual sync already holds the database lock");
+      return;
+    }
+
+    const uniqueManuals = new Map<string, SeedManual>();
+    for (const manual of manifest.products.flatMap((product) => product.manuals)) {
+      uniqueManuals.set(manual.url, manual);
+    }
+    const preparedManuals = new Map<string, StoredManual>();
+    const limit = pLimit(4);
+    let completedManuals = 0;
+    await Promise.all(
+      [...uniqueManuals.values()].map((manual) =>
+        limit(async () => {
+          preparedManuals.set(manual.url, await ensureManual(manual, storageDir));
+          completedManuals += 1;
+          console.log(`MANUAL_SYNC ${completedManuals}/${uniqueManuals.size}`);
+        }),
+      ),
+    );
+
     const existing = await client.query<{ id: string }>(
       "SELECT id FROM ingestion_batches WHERE name=$1 ORDER BY created_at DESC LIMIT 1",
       [BATCH_NAME],
@@ -453,6 +471,9 @@ async function main(): Promise<void> {
     }
     throw error;
   } finally {
+    if (lockAcquired) {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", ["monterra:ikea-cloud-seed-v1"]).catch(() => undefined);
+    }
     await client.end();
   }
 }
