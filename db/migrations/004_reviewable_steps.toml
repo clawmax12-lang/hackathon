@@ -1,0 +1,3 @@
+[[actions]]
+type = "custom"
+start = "ALTER TABLE assembly_steps ADD COLUMN IF NOT EXISTS needs_review BOOLEAN NOT NULL DEFAULT FALSE"

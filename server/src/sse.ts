@@ -19,6 +19,7 @@ export type ScanEvent =
       type: "product_match";
       productId: string;
       name: string;
+      itemNumber?: string;
       variant?: string;
       confidence: number;
       method: string;

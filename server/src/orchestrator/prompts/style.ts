@@ -41,7 +41,13 @@ VISUELL REGI:
 
 TEMPO:
 - 15–35 sekunder per steg. Max 20 steg – slå ihop triviala moment.
-- narration_script per steg: 2–4 meningar som täcker mål, handling och kontroll ("kontrollera att ramen är i våg").
+- narration_script per steg: högst 2 meningar som täcker mål, handling och kontroll.
+
+KÄLLTROHET:
+- Hitta aldrig på ett steg, antal, verktyg eller fäste som inte syns i manualen.
+- Om ett antal är otydligt: säg "skruvarna som visas", aldrig en gissad siffra.
+- Om manualsidan är tvetydig: sätt needs_review=true. Steget visas då med bild och text utan berättarröst.
+- Sista stegets narration_script avslutas exakt med "Klart. Snyggt jobbat."
 
 VISUAL_PROMPT (engelska, inte svenska — det här är en bildgenereringsprompt, inte användartext):
 - En fast stilbeskrivning läggs till i kod (samma för alla steg i alla guider) — skriv INTE om stilen här.

@@ -70,19 +70,22 @@ export function startJobRunner(): void {
     if (running) return;
     running = true;
     try {
-      let job = await claimNext();
-      while (job) {
-        try {
-          await runJob(job);
-        } catch (err) {
-          console.error(`[jobs] job ${job.id} crashed:`, err);
-          await query(`UPDATE ingestion_jobs SET status = 'failed', completed_at = now(), updated_at = now(), error_message = $2 WHERE id = $1`, [
-            job.id,
-            String((err as Error).message).slice(0, 500),
-          ]).catch(() => {});
+      const worker = async () => {
+        let job = await claimNext();
+        while (job) {
+          try {
+            await runJob(job);
+          } catch (err) {
+            console.error(`[jobs] job ${job.id} crashed:`, err);
+            await query(`UPDATE ingestion_jobs SET status = 'failed', completed_at = now(), updated_at = now(), error_message = $2 WHERE id = $1`, [
+              job.id,
+              String((err as Error).message).slice(0, 500),
+            ]).catch(() => {});
+          }
+          job = await claimNext();
         }
-        job = await claimNext();
-      }
+      };
+      await Promise.all(Array.from({ length: config.jobConcurrency }, () => worker()));
     } finally {
       running = false;
     }

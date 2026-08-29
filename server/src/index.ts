@@ -1,23 +1,27 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { config } from "./env.js";
 import { maybeOne } from "./db.js";
 import { mimeFor, pathFor } from "./storage.js";
 import { scans } from "./routes/scans.js";
 import { guides } from "./routes/guides.js";
-import { waitlist } from "./routes/waitlist.js";
 import { startJobRunner } from "./jobs.js";
+import { commercial } from "./routes/commercial.js";
 
 const exec = promisify(execFile);
 const app = new Hono();
 
+app.use("/api/*", cors());
+
 app.route("/api/scans", scans);
 app.route("/api/guides", guides);
-app.route("/api/waitlist", waitlist);
+app.route("/api", commercial);
 
 // Asset streaming with HTTP Range support (video seeking in Safari/Chrome).
 app.get("/api/assets/*", async (c) => {
@@ -53,11 +57,11 @@ app.get("/api/assets/*", async (c) => {
     headers["Content-Range"] = `bytes ${start}-${end}/${stat.size}`;
     headers["Content-Length"] = String(end - start + 1);
     const stream = fs.createReadStream(abs, { start, end });
-    return c.body(stream as unknown as ReadableStream, 206, headers);
+    return c.body(Readable.toWeb(stream) as ReadableStream, 206, headers);
   }
 
   headers["Content-Length"] = String(stat.size);
-  return c.body(fs.createReadStream(abs) as unknown as ReadableStream, 200, headers);
+  return c.body(Readable.toWeb(fs.createReadStream(abs)) as ReadableStream, 200, headers);
 });
 
 app.get("/api/healthz", async (c) => {

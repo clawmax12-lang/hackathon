@@ -1,6 +1,56 @@
+secret "anthropic_api_key" {}
+
+secret "anthropic_workspace_id" {}
+
+secret "elevenlabs_api_key" {}
+
+secret "firecrawl_api_key" {
+  dev {
+    required = false
+  }
+}
+
+secret "stripe_webhook_secret" {
+  dev {
+    required = false
+  }
+}
+
+config "stripe_payment_link_url" {
+  default = ""
+}
+
+config "guide_price_sek" {
+  default = "49"
+}
+
+config "anthropic_orchestrator_model" {
+  default = "claude-opus-5"
+}
+
+config "anthropic_vision_model" {
+  default = "claude-haiku-4-5"
+}
+
+config "ikea_market" {
+  default = "se"
+}
+
+config "ikea_language" {
+  default = "sv"
+}
+
+config "job_concurrency" {
+  default = "2"
+}
+
 build "web" {
   base    = "node"
   command = "npm run build"
+
+  env = {
+    VITE_API_ORIGIN = "https://${service.api.public_url}"
+  }
 }
 
 service "web" {
@@ -22,23 +72,18 @@ service "web" {
   dev {
     command = "npm run dev -- --port $PORT"
     env = {
-      API_ORIGIN = service.api.url
+      API_ORIGIN = "http://${service.api.url}"
     }
   }
 }
 
 build "api" {
-  base    = "node"
-  command = "npm ci"
+  dockerfile = "Dockerfile.api"
 }
 
 service "api" {
   build   = build.api
-  command = "npx tsx server/src/index.ts"
-
-  pre_deploy {
-    command = "npx tsx scripts/import-ikea-cloud-seed.ts"
-  }
+  command = "npx tsx scripts/start-api-with-catalog-sync.ts"
 
   endpoint {
     public = true
@@ -51,37 +96,21 @@ service "api" {
   volume "storage" {}
 
   env = {
-    PORT                   = port
-    DATABASE_URL           = postgres.catalog.url
-    STORAGE_DIR            = volume.storage.path
-    ANTHROPIC_API_KEY      = secret.anthropic_api_key
-    ANTHROPIC_WORKSPACE_ID = secret.anthropic_workspace_id
-    ELEVENLABS_API_KEY     = secret.elevenlabs_api_key
-    FIRECRAWL_API_KEY      = secret.firecrawl_api_key
-  }
-}
-
-secret "anthropic_api_key" {
-  dev {
-    required = false
-  }
-}
-
-secret "anthropic_workspace_id" {
-  dev {
-    required = false
-  }
-}
-
-secret "elevenlabs_api_key" {
-  dev {
-    required = false
-  }
-}
-
-secret "firecrawl_api_key" {
-  dev {
-    required = false
+    PORT                           = port
+    DATABASE_URL                   = postgres.catalog.url
+    STORAGE_DIR                    = volume.storage.path
+    ANTHROPIC_API_KEY              = secret.anthropic_api_key
+    ANTHROPIC_WORKSPACE_ID         = secret.anthropic_workspace_id
+    ANTHROPIC_ORCHESTRATOR_MODEL   = config.anthropic_orchestrator_model
+    ANTHROPIC_VISION_MODEL         = config.anthropic_vision_model
+    ELEVENLABS_API_KEY             = secret.elevenlabs_api_key
+    FIRECRAWL_API_KEY              = secret.firecrawl_api_key
+    STRIPE_WEBHOOK_SECRET          = secret.stripe_webhook_secret
+    STRIPE_PAYMENT_LINK_URL        = config.stripe_payment_link_url
+    GUIDE_PRICE_SEK                = config.guide_price_sek
+    IKEA_MARKET                    = config.ikea_market
+    IKEA_LANGUAGE                  = config.ikea_language
+    JOB_CONCURRENCY                = config.job_concurrency
   }
 }
 
