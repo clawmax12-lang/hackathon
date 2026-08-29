@@ -1,0 +1,1200 @@
+# Initial catalog and content-processing schema.
+# Provider/model identifiers intentionally remain TEXT so they can evolve
+# independently from the database schema.
+
+[[actions]]
+type = "custom"
+start = "CREATE EXTENSION IF NOT EXISTS pgcrypto"
+
+[[actions]]
+type = "create_enum"
+name = "catalog_status"
+values = ["queued", "enriching", "ready", "failed", "retired"]
+
+[[actions]]
+type = "create_enum"
+name = "document_kind"
+values = ["product_page", "manual", "scrape_snapshot", "other"]
+
+[[actions]]
+type = "create_enum"
+name = "document_status"
+values = ["discovered", "fetching", "ready", "failed", "stale"]
+
+[[actions]]
+type = "create_enum"
+name = "asset_kind"
+values = ["scan_image", "product_image", "manual_pdf", "source_snapshot", "guide_video", "guide_thumbnail", "step_visual"]
+
+[[actions]]
+type = "create_enum"
+name = "guide_status"
+values = ["draft", "generating", "ready", "failed", "retired"]
+
+[[actions]]
+type = "create_enum"
+name = "scan_status"
+values = ["uploaded", "recognizing", "matched", "fallback_queued", "failed"]
+
+[[actions]]
+type = "create_enum"
+name = "match_method"
+values = ["item_number", "alias", "fuzzy_name", "fallback_scrape", "manual_review"]
+
+[[actions]]
+type = "create_enum"
+name = "job_kind"
+values = ["catalog_seed", "product_discovery", "manual_fetch", "manual_parse", "guide_generation", "video_render", "fallback_scrape"]
+
+[[actions]]
+type = "create_enum"
+name = "job_status"
+values = ["pending", "running", "succeeded", "failed", "cancelled"]
+
+[[actions]]
+type = "create_table"
+name = "products"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "ikea_item_number"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "name"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "normalized_name"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "category"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "description"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "market"
+  type = "TEXT"
+  nullable = false
+  default = "'global'"
+
+  [[actions.columns]]
+  name = "language"
+  type = "TEXT"
+  nullable = false
+  default = "'en'"
+
+  [[actions.columns]]
+  name = "product_url"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "popularity_rank"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "status"
+  type = "catalog_status"
+  nullable = false
+  default = "'queued'"
+
+  [[actions.columns]]
+  name = "metadata"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "last_verified_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+[[actions]]
+type = "create_table"
+name = "product_aliases"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "product_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "alias"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "normalized_alias"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "alias_kind"
+  type = "TEXT"
+  nullable = false
+  default = "'name'"
+
+  [[actions.columns]]
+  name = "locale"
+  type = "TEXT"
+  nullable = false
+  default = "'en'"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "media_assets"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "kind"
+  type = "asset_kind"
+  nullable = false
+
+  [[actions.columns]]
+  name = "storage_key"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "source_url"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "mime_type"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "byte_size"
+  type = "BIGINT"
+
+  [[actions.columns]]
+  name = "checksum_sha256"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "metadata"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+[[actions]]
+type = "create_table"
+name = "source_documents"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "kind"
+  type = "document_kind"
+  nullable = false
+
+  [[actions.columns]]
+  name = "status"
+  type = "document_status"
+  nullable = false
+  default = "'discovered'"
+
+  [[actions.columns]]
+  name = "canonical_url"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "asset_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "title"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "locale"
+  type = "TEXT"
+  nullable = false
+  default = "'en'"
+
+  [[actions.columns]]
+  name = "provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "checksum_sha256"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "page_count"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "metadata"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "fetched_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "last_verified_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "product_assets"
+primary_key = ["product_id", "asset_id"]
+
+  [[actions.columns]]
+  name = "product_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "asset_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "role"
+  type = "TEXT"
+  nullable = false
+  default = "'image'"
+
+  [[actions.columns]]
+  name = "sort_order"
+  type = "INTEGER"
+  nullable = false
+  default = "0"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "product_documents"
+primary_key = ["product_id", "document_id"]
+
+  [[actions.columns]]
+  name = "product_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "document_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "relationship"
+  type = "TEXT"
+  nullable = false
+  default = "'manual'"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["document_id"]
+  referenced_table = "source_documents"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "assembly_guides"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "product_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "manual_document_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "status"
+  type = "guide_status"
+  nullable = false
+  default = "'draft'"
+
+  [[actions.columns]]
+  name = "language"
+  type = "TEXT"
+  nullable = false
+  default = "'en'"
+
+  [[actions.columns]]
+  name = "title"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "summary"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "generator_provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "generator_model"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "prompt_version"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "source_fingerprint"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "published_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.foreign_keys]]
+  columns = ["product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["manual_document_id"]
+  referenced_table = "source_documents"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "assembly_steps"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "guide_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "step_number"
+  type = "INTEGER"
+  nullable = false
+
+  [[actions.columns]]
+  name = "title"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "instruction"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "safety_warning"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "estimated_seconds"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "manual_pages"
+  type = "INTEGER[]"
+  nullable = false
+  default = "'{}'::integer[]"
+
+  [[actions.columns]]
+  name = "parts"
+  type = "JSONB"
+  nullable = false
+  default = "'[]'::jsonb"
+
+  [[actions.columns]]
+  name = "tools"
+  type = "JSONB"
+  nullable = false
+  default = "'[]'::jsonb"
+
+  [[actions.columns]]
+  name = "visual_prompt"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["guide_id"]
+  referenced_table = "assembly_guides"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "generated_videos"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "guide_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "video_asset_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "thumbnail_asset_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "status"
+  type = "guide_status"
+  nullable = false
+  default = "'draft'"
+
+  [[actions.columns]]
+  name = "generator_provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "generator_model"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "duration_seconds"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "error_message"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "published_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.foreign_keys]]
+  columns = ["guide_id"]
+  referenced_table = "assembly_guides"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["video_asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["thumbnail_asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "step_assets"
+primary_key = ["step_id", "asset_id"]
+
+  [[actions.columns]]
+  name = "step_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "asset_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "role"
+  type = "TEXT"
+  nullable = false
+  default = "'visual'"
+
+  [[actions.columns]]
+  name = "sort_order"
+  type = "INTEGER"
+  nullable = false
+  default = "0"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["step_id"]
+  referenced_table = "assembly_steps"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "furniture_scans"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "image_asset_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "status"
+  type = "scan_status"
+  nullable = false
+  default = "'uploaded'"
+
+  [[actions.columns]]
+  name = "extracted_text"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "extracted_item_number"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "matched_product_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "match_method"
+  type = "match_method"
+
+  [[actions.columns]]
+  name = "match_confidence"
+  type = "NUMERIC(5,4)"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "processed_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.foreign_keys]]
+  columns = ["image_asset_id"]
+  referenced_table = "media_assets"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["matched_product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "ingestion_batches"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "name"
+  type = "TEXT"
+  nullable = false
+
+  [[actions.columns]]
+  name = "status"
+  type = "job_status"
+  nullable = false
+  default = "'pending'"
+
+  [[actions.columns]]
+  name = "provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "model"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "expected_items"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "metadata"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "started_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "completed_at"
+  type = "TIMESTAMPTZ"
+
+[[actions]]
+type = "create_table"
+name = "ingestion_jobs"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "kind"
+  type = "job_kind"
+  nullable = false
+
+  [[actions.columns]]
+  name = "status"
+  type = "job_status"
+  nullable = false
+  default = "'pending'"
+
+  [[actions.columns]]
+  name = "batch_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "product_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "scan_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "source_document_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "guide_id"
+  type = "UUID"
+
+  [[actions.columns]]
+  name = "provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "model"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "priority"
+  type = "INTEGER"
+  nullable = false
+  default = "100"
+
+  [[actions.columns]]
+  name = "attempt_count"
+  type = "INTEGER"
+  nullable = false
+  default = "0"
+
+  [[actions.columns]]
+  name = "max_attempts"
+  type = "INTEGER"
+  nullable = false
+  default = "3"
+
+  [[actions.columns]]
+  name = "idempotency_key"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "input"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "output"
+  type = "JSONB"
+  nullable = false
+  default = "'{}'::jsonb"
+
+  [[actions.columns]]
+  name = "error_message"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "available_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "started_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "completed_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.columns]]
+  name = "created_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "updated_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.foreign_keys]]
+  columns = ["batch_id"]
+  referenced_table = "ingestion_batches"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["product_id"]
+  referenced_table = "products"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["scan_id"]
+  referenced_table = "furniture_scans"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["source_document_id"]
+  referenced_table = "source_documents"
+  referenced_columns = ["id"]
+
+  [[actions.foreign_keys]]
+  columns = ["guide_id"]
+  referenced_table = "assembly_guides"
+  referenced_columns = ["id"]
+
+[[actions]]
+type = "create_table"
+name = "job_attempts"
+primary_key = ["id"]
+
+  [[actions.columns]]
+  name = "id"
+  type = "UUID"
+  nullable = false
+  default = "gen_random_uuid()"
+
+  [[actions.columns]]
+  name = "job_id"
+  type = "UUID"
+  nullable = false
+
+  [[actions.columns]]
+  name = "attempt_number"
+  type = "INTEGER"
+  nullable = false
+
+  [[actions.columns]]
+  name = "provider"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "model"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "input_tokens"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "output_tokens"
+  type = "INTEGER"
+
+  [[actions.columns]]
+  name = "estimated_cost_usd"
+  type = "NUMERIC(12,6)"
+
+  [[actions.columns]]
+  name = "error_message"
+  type = "TEXT"
+
+  [[actions.columns]]
+  name = "started_at"
+  type = "TIMESTAMPTZ"
+  nullable = false
+  default = "NOW()"
+
+  [[actions.columns]]
+  name = "finished_at"
+  type = "TIMESTAMPTZ"
+
+  [[actions.foreign_keys]]
+  columns = ["job_id"]
+  referenced_table = "ingestion_jobs"
+  referenced_columns = ["id"]
+
+# Natural-key and lookup indexes.
+[[actions]]
+type = "add_index"
+table = "products"
+  [actions.index]
+  name = "products_item_number_unique"
+  columns = ["ikea_item_number"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "products"
+  [actions.index]
+  name = "products_normalized_name_idx"
+  columns = ["normalized_name"]
+
+[[actions]]
+type = "add_index"
+table = "products"
+  [actions.index]
+  name = "products_status_rank_idx"
+  columns = ["status", "popularity_rank"]
+
+[[actions]]
+type = "add_index"
+table = "product_aliases"
+  [actions.index]
+  name = "product_aliases_product_value_unique"
+  columns = ["product_id", "normalized_alias"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "product_aliases"
+  [actions.index]
+  name = "product_aliases_normalized_alias_idx"
+  columns = ["normalized_alias"]
+
+[[actions]]
+type = "add_index"
+table = "media_assets"
+  [actions.index]
+  name = "media_assets_storage_key_unique"
+  columns = ["storage_key"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "source_documents"
+  [actions.index]
+  name = "source_documents_canonical_url_unique"
+  columns = ["canonical_url"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "source_documents"
+  [actions.index]
+  name = "source_documents_status_kind_idx"
+  columns = ["status", "kind"]
+
+[[actions]]
+type = "add_index"
+table = "product_documents"
+  [actions.index]
+  name = "product_documents_document_idx"
+  columns = ["document_id"]
+
+[[actions]]
+type = "add_index"
+table = "product_assets"
+  [actions.index]
+  name = "product_assets_product_order_idx"
+  columns = ["product_id", "sort_order"]
+
+[[actions]]
+type = "add_index"
+table = "product_assets"
+  [actions.index]
+  name = "product_assets_asset_idx"
+  columns = ["asset_id"]
+
+[[actions]]
+type = "add_index"
+table = "assembly_guides"
+  [actions.index]
+  name = "assembly_guides_product_status_idx"
+  columns = ["product_id", "status"]
+
+[[actions]]
+type = "add_index"
+table = "assembly_steps"
+  [actions.index]
+  name = "assembly_steps_guide_number_unique"
+  columns = ["guide_id", "step_number"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "generated_videos"
+  [actions.index]
+  name = "generated_videos_guide_status_idx"
+  columns = ["guide_id", "status"]
+
+[[actions]]
+type = "add_index"
+table = "step_assets"
+  [actions.index]
+  name = "step_assets_step_order_idx"
+  columns = ["step_id", "sort_order"]
+
+[[actions]]
+type = "add_index"
+table = "step_assets"
+  [actions.index]
+  name = "step_assets_asset_idx"
+  columns = ["asset_id"]
+
+[[actions]]
+type = "add_index"
+table = "furniture_scans"
+  [actions.index]
+  name = "furniture_scans_status_created_idx"
+  columns = ["status", "created_at"]
+
+[[actions]]
+type = "add_index"
+table = "furniture_scans"
+  [actions.index]
+  name = "furniture_scans_product_idx"
+  columns = ["matched_product_id"]
+
+[[actions]]
+type = "add_index"
+table = "ingestion_jobs"
+  [actions.index]
+  name = "ingestion_jobs_idempotency_key_unique"
+  columns = ["idempotency_key"]
+  unique = true
+
+[[actions]]
+type = "add_index"
+table = "ingestion_jobs"
+  [actions.index]
+  name = "ingestion_jobs_dequeue_idx"
+  columns = ["status", "priority", "available_at"]
+
+[[actions]]
+type = "add_index"
+table = "ingestion_jobs"
+  [actions.index]
+  name = "ingestion_jobs_batch_status_idx"
+  columns = ["batch_id", "status"]
+
+[[actions]]
+type = "add_index"
+table = "ingestion_jobs"
+  [actions.index]
+  name = "ingestion_jobs_product_kind_idx"
+  columns = ["product_id", "kind"]
+
+[[actions]]
+type = "add_index"
+table = "job_attempts"
+  [actions.index]
+  name = "job_attempts_job_number_unique"
+  columns = ["job_id", "attempt_number"]
+  unique = true
+
+[[actions]]
+type = "custom"
+start = """
+ALTER TABLE products
+  ADD CONSTRAINT products_popularity_rank_positive
+  CHECK (popularity_rank IS NULL OR popularity_rank > 0);
+ALTER TABLE media_assets
+  ADD CONSTRAINT media_assets_has_location
+  CHECK (storage_key IS NOT NULL OR source_url IS NOT NULL),
+  ADD CONSTRAINT media_assets_byte_size_nonnegative
+  CHECK (byte_size IS NULL OR byte_size >= 0);
+ALTER TABLE source_documents
+  ADD CONSTRAINT source_documents_page_count_positive
+  CHECK (page_count IS NULL OR page_count > 0);
+ALTER TABLE assembly_steps
+  ADD CONSTRAINT assembly_steps_number_positive
+  CHECK (step_number > 0),
+  ADD CONSTRAINT assembly_steps_duration_nonnegative
+  CHECK (estimated_seconds IS NULL OR estimated_seconds >= 0);
+ALTER TABLE generated_videos
+  ADD CONSTRAINT generated_videos_duration_nonnegative
+  CHECK (duration_seconds IS NULL OR duration_seconds >= 0);
+ALTER TABLE furniture_scans
+  ADD CONSTRAINT furniture_scans_confidence_range
+  CHECK (match_confidence IS NULL OR match_confidence BETWEEN 0 AND 1);
+ALTER TABLE ingestion_batches
+  ADD CONSTRAINT ingestion_batches_expected_items_positive
+  CHECK (expected_items IS NULL OR expected_items > 0);
+ALTER TABLE ingestion_jobs
+  ADD CONSTRAINT ingestion_jobs_attempts_valid
+  CHECK (attempt_count >= 0 AND max_attempts > 0 AND attempt_count <= max_attempts);
+ALTER TABLE job_attempts
+  ADD CONSTRAINT job_attempts_number_positive
+  CHECK (attempt_number > 0),
+  ADD CONSTRAINT job_attempts_tokens_nonnegative
+  CHECK ((input_tokens IS NULL OR input_tokens >= 0) AND (output_tokens IS NULL OR output_tokens >= 0)),
+  ADD CONSTRAINT job_attempts_cost_nonnegative
+  CHECK (estimated_cost_usd IS NULL OR estimated_cost_usd >= 0);
+"""
