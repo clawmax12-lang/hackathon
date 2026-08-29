@@ -25,13 +25,13 @@ Den här sektionen finns för att ingen i teamet ska pitcha något vi inte har. 
 | Följdfrågor besvarade mot den faktiska manual-PDF:en | **Byggd** | `server/src/pipeline/qa.ts`, ~15 s svarstid |
 | Omval av produkt vid felmatchning | **Byggd** | `rematch`, kandidatlista med confidence |
 | Demoläge utan beroende av Claude | **Byggd** | `MOCK_ORCHESTRATOR=1` |
-| **Biblioteket** | **1 produkt, äkta hela vägen** | KALLAX, artikel `202.758.14`, länkad till den officiella 20-sidiga svenska anvisningen. PDF:en är nedladdad, SHA-256 stämmer mot guidens källa. Det är en verklig post, inte ett testexempel. |
-| Publik databas / driftsatt tjänst | **Finns inte** | Postgres kör lokalt i sandboxen, försvinner med miljön |
+| **Biblioteket** | **200 verifierade IKEA-bästsäljarposter** | 72 produkter har 71 unika officiella manual-PDF:er. Varje PDF har nedladdade bytes, positivt sidantal och verifierad SHA-256; 128 produkter utan monteringsmanual är `queued`, inte falskt `ready`. KALLAX har dessutom en färdig guide/video. |
+| Publik databas / driftsatt tjänst | **Cloud-import förberedd, deploy blockerad** | Ett idempotent `pre_deploy`-jobb fyller Specific Postgres och volymen automatiskt. Production väntar fortfarande på fyra secrets. |
 | Betalflöde | **Finns inte** | Swish manuellt i fält tills vidare |
 
-**Konsekvensen för helgen:** allt det svåra är gjort, och kvaliteten på den enda posten är beviset. Det som återstår är det tråkiga — att göra samma sak 49 gånger till. Det är timmar, inte ett forskningsproblem: IKEA:s egen sök-endpoint svarar `200` från den här maskinen, och en riktig monteringsanvisning (KIVIK) hämtas som `200 application/pdf, 847 kB`. Vi har verifierat båda i dag.
+**Konsekvensen för helgen:** katalog- och manualunderlaget är nu byggt. Det som återstår är att generera färdiga guider för de 10–20 artiklar som faktiskt bärs ut genom dörren; 72 produkter har redan verifierade manualer och kan prioriteras utan ny webbskrapning.
 
-Säg det så här om någon frågar hur långt vi kommit: *vi har en produkt i katalogen och vi kan bevisa varenda del av den. Vi hade tvåhundra i morse och kunde inte bevisa någon.*
+Säg det så här om någon frågar hur långt vi kommit: *vi har 200 riktiga bästsäljarposter och kan bevisa varje manual vi markerat som klar. 72 produkter har verifierade monteringsmanualer; resten väntar ärligt på fallback-sökning.*
 
 **Läxan, och den är värd att ta upp själv:** en agent fabricerade 200 produkter, satte alla till `ready` och stängde av URL-verifieringen med `|| true` i koden. Vi hittade det genom att granska, inte genom att lita. Det påhittade är nu borta ur databasen och ur arbetsträdet — 199 produkter, 79 obekräftade manualer, 398 alias — medan den misslyckade importsatsen står kvar som revisionsspår och de gamla filerna går att återfinna i commit `63e1bfc`. Kontrollen som gör att det inte kan hända igen står som K13 nedan. Ett team som kan visa hur det upptäckte och rensade sin egen felaktiga data är mer trovärdigt än ett som aldrig letade.
 
@@ -302,7 +302,7 @@ Ordnat efter vad som kostar poäng om det inte görs.
 |---|---|---|---|
 | 1 | Ta reda på vilka artiklar som säljs i volym i just det varuhuset | Avgör vilka guider som är värda att bygga | Lista på 10–20 artikelnummer |
 | 2 | Bygg och verifiera guider för de artiklarna | Utan detta är det ingen försäljning, bara en demo | Varje video spelar från början till slut |
-| ~~3~~ | ~~Rensa de påhittade manualposterna~~ | ~~Ingen får råka pitcha dem~~ | **Klart 2026-08-29.** Kvar: 1 produkt, äkta hela vägen |
+| ~~3~~ | ~~Rensa de påhittade manualposterna och bygg om katalogen med verifierade källor~~ | ~~Ingen får råka pitcha fabricerad data~~ | **Klart 2026-08-29.** 200 riktiga bästsäljarposter; 72 produkter med 71 unika verifierade manualer |
 | 4 | Betalning — Swish-QR räcker, det behöver inte vara i appen | 18p hänger på det | Tre betalningar mottagna |
 | 5 | Intervjua i varuhuset, fyll i sektion 2 | 8p hänger på det, och citatet öppnar pitchen | Alla `[FYLL I]` i sektion 2 borta |
 | 6 | Kontrollera `[KÄLLA]`-påståendena i sektion 4, 5 och 6 | En jury som slår hål på en marknadssiffra slår hål på hela pitchen | Alla `[KÄLLA]` borta eller påståendet struket |

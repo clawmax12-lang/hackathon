@@ -178,9 +178,9 @@ Kör den högt tre gånger. Inte i huvudet.
 | Omval vid felmatchning | **Byggd** |
 | Demoläge utan modellberoende | **Byggd** |
 | UI kopplat till backend | **Nej** — kritisk väg |
-| Biblioteket | **1 produkt, äkta hela vägen.** KALLAX `202.758.14`, officiell 20-sidig svensk anvisning, PDF nedladdad, SHA-256 stämmer |
+| Biblioteket | **200 verifierade bästsäljarposter.** 72 produkter har 71 unika officiella manual-PDF:er; övriga 128 är `queued`, aldrig falskt `ready`. KALLAX har dessutom en färdig guide/video |
 | Röststyrning, betalning, missloggning | **Nej** |
-| Publikt nåbar tjänst | **Nej** |
+| Publikt nåbar tjänst | **Förberedd men blockerad av production-secrets.** Cloud-seed kör automatiskt vid första lyckade deploy |
 | Kostnad per ny guide | **$1,17**, uppmätt |
 | Tid för ny guide | **4–6 min.** Guide som redan finns: startar direkt |
 
