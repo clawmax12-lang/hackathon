@@ -10,16 +10,6 @@ secret "firecrawl_api_key" {
   }
 }
 
-secret "stripe_webhook_secret" {
-  dev {
-    required = false
-  }
-}
-
-config "stripe_payment_link_url" {
-  default = ""
-}
-
 config "guide_price_sek" {
   default = "49"
 }
@@ -105,8 +95,6 @@ service "api" {
     ANTHROPIC_VISION_MODEL         = config.anthropic_vision_model
     ELEVENLABS_API_KEY             = secret.elevenlabs_api_key
     FIRECRAWL_API_KEY              = secret.firecrawl_api_key
-    STRIPE_WEBHOOK_SECRET          = secret.stripe_webhook_secret
-    STRIPE_PAYMENT_LINK_URL        = config.stripe_payment_link_url
     GUIDE_PRICE_SEK                = config.guide_price_sek
     IKEA_MARKET                    = config.ikea_market
     IKEA_LANGUAGE                  = config.ikea_language
