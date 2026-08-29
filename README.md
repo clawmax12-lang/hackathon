@@ -67,8 +67,8 @@ Put local values in gitignored `specific.local`:
 - `anthropic_workspace_id`
 - `elevenlabs_api_key`
 - optional `firecrawl_api_key`
-- `stripe_payment_link_url`
-- `stripe_webhook_secret`
+
+Stripe’s Payment Link and webhook secret are intentionally not bound in Specific yet. Add both declarations and API environment bindings when payment setup resumes; until then the existing integration fails closed with a disabled payment button.
 
 Production values are managed in the [Specific Dashboard](https://dashboard.specific.dev). Deploy with the repository’s configured Specific/GitHub workflow.
 
