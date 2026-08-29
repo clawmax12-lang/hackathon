@@ -9,6 +9,13 @@ import { exists, pathFor, putFile, readFile } from "../storage.js";
 
 const exec = promisify(execFile);
 
+function cappedStepNarration(value: string, isLast: boolean): string {
+  if (isLast) return "Klart. Snyggt jobbat.";
+  const withoutStepLabel = value.trim().replace(/^Steg\s+[^.!?]+[.!?]\s*/iu, "");
+  const sentences = withoutStepLabel.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
+  return sentences.slice(0, 2).join(" ");
+}
+
 export async function audioDurationSeconds(filePath: string): Promise<number> {
   const { stdout } = await exec(
     "ffprobe",
@@ -60,8 +67,8 @@ export async function synthesizeNarration(guideId: string): Promise<NarrationRes
   )[0];
   if (!guide) throw new Error(`guide ${guideId} not found`);
 
-  const steps = await query<{ step_number: number; title: string; instruction: string; narration_script: string | null }>(
-    "SELECT step_number, title, instruction, narration_script FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number",
+  const steps = await query<{ step_number: number; title: string; instruction: string; narration_script: string | null; needs_review: boolean }>(
+    "SELECT step_number, title, instruction, narration_script, needs_review FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number",
     [guideId],
   );
   if (steps.length === 0) throw new Error("guide has no steps");
@@ -69,7 +76,9 @@ export async function synthesizeNarration(guideId: string): Promise<NarrationRes
   const introText = `${guide.title}. ${guide.summary ?? "Vi bygger den tillsammans, steg för steg."} Lägg fram alla delar och verktyg innan du börjar.`;
   const outroText = "Klart! Bra jobbat. Kontrollera att alla skruvar är åtdragna, och spara instruktionen om du behöver den senare.";
 
-  const limit = pLimit(3);
+  // Two guide jobs may run at once. Keeping each guide to two concurrent TTS
+  // calls stays below ElevenLabs' five-request workspace limit.
+  const limit = pLimit(2);
   let totalChars = introText.length + outroText.length;
 
   const jobs: Promise<void>[] = [];
@@ -90,8 +99,11 @@ export async function synthesizeNarration(guideId: string): Promise<NarrationRes
     }),
   );
 
-  for (const step of steps) {
-    const text = step.narration_script?.trim() || `Steg ${step.step_number}. ${step.title}. ${step.instruction}`;
+  for (const [index, step] of steps.entries()) {
+    if (step.needs_review) continue;
+    const rawText = step.narration_script?.trim() || `${step.title}. ${step.instruction}`;
+    const text = cappedStepNarration(rawText, index === steps.length - 1);
+    await query("UPDATE assembly_steps SET narration_script=$1,updated_at=NOW() WHERE guide_id=$2 AND step_number=$3", [text, guideId, step.step_number]);
     totalChars += text.length;
     jobs.push(
       limit(async () => {

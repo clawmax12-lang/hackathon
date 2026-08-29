@@ -30,7 +30,7 @@ const anthropicApiKey = str("ANTHROPIC_API_KEY");
 export const config = {
   port: num("PORT", 3002),
   databaseUrl: str("DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:3099/catalog"),
-  storageDir: str("STORAGE_DIR", path.resolve(process.cwd(), "var/storage")),
+  storageDir: str("STORAGE_DIR", path.resolve(process.cwd(), ".specific/keys/default/data/volumes/api/storage")),
 
   anthropicApiKey,
   anthropicWorkspaceId: str("ANTHROPIC_WORKSPACE_ID"),
@@ -42,12 +42,16 @@ export const config = {
   elevenLabsVoiceId: str("ELEVENLABS_VOICE_ID", "x0u3EW21dbrORJzOq1m9"),
 
   firecrawlApiKey: str("FIRECRAWL_API_KEY"),
+  stripeWebhookSecret: str("STRIPE_WEBHOOK_SECRET"),
+  stripePaymentLinkUrl: str("STRIPE_PAYMENT_LINK_URL"),
+  guidePriceSek: num("GUIDE_PRICE_SEK", 49),
 
   // Mock walks the same state machine with scripted reasoning; defaults to
   // mock only when no Anthropic key is configured.
   mockOrchestrator: str("MOCK_ORCHESTRATOR", anthropicApiKey ? "0" : "1") === "1",
 
   maxTurns: num("PIPELINE_MAX_TURNS", 24),
+  jobConcurrency: num("JOB_CONCURRENCY", 2),
   maxCostUsd: Number(process.env.PIPELINE_MAX_COST_USD ?? "3.0"),
   includeMusic: str("INCLUDE_MUSIC", "0") === "1",
 

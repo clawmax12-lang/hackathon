@@ -15,11 +15,15 @@ guides.get("/:id", async (c) => {
     duration_seconds: number | null;
     video_key: string | null;
     thumb_key: string | null;
+    manual_document_id: string | null;
+    manual_url: string | null;
   }>(
     `SELECT ag.id, ag.title, ag.summary, p.name AS product_name, p.category,
-            gv.duration_seconds, va.storage_key AS video_key, ta.storage_key AS thumb_key
+            gv.duration_seconds, va.storage_key AS video_key, ta.storage_key AS thumb_key,
+            ag.manual_document_id, sd.canonical_url AS manual_url
        FROM assembly_guides ag
        JOIN products p ON p.id = ag.product_id
+       LEFT JOIN source_documents sd ON sd.id = ag.manual_document_id
        LEFT JOIN generated_videos gv ON gv.guide_id = ag.id
        LEFT JOIN media_assets va ON va.id = gv.video_asset_id
        LEFT JOIN media_assets ta ON ta.id = gv.thumbnail_asset_id
@@ -37,8 +41,10 @@ guides.get("/:id", async (c) => {
     parts: string[] | null;
     tools: string[] | null;
     manual_pages: number[] | null;
+    visual_prompt: string | null;
+    needs_review: boolean;
   }>(
-    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, parts, tools, manual_pages
+    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, parts, tools, manual_pages, visual_prompt, needs_review
        FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number`,
     [guideId],
   );
@@ -52,6 +58,7 @@ guides.get("/:id", async (c) => {
     videoUrl: guide.video_key ? `/api/assets/${guide.video_key}` : null,
     thumbnailUrl: guide.thumb_key ? `/api/assets/${guide.thumb_key}` : null,
     durationSeconds: guide.duration_seconds ?? 0,
+    manualUrl: guide.manual_url,
     steps: steps.map((s) => ({
       stepNumber: s.step_number,
       title: s.title,
@@ -61,6 +68,19 @@ guides.get("/:id", async (c) => {
       parts: s.parts ?? [],
       tools: s.tools ?? [],
       manualPages: s.manual_pages ?? [],
+      imageUrl: guide.manual_document_id && s.manual_pages?.[0]
+        ? `/api/assets/pages/${guide.manual_document_id}/video/p-${s.manual_pages[0]}.png`
+        : null,
+      audioUrl: s.needs_review ? null : `/api/assets/audio/${guide.id}/step-${String(s.step_number).padStart(2, "0")}.mp3`,
+      needsReview: s.needs_review,
+      focusRegion: (() => {
+        try {
+          const value = s.visual_prompt ? JSON.parse(s.visual_prompt) : null;
+          return ["top", "center", "bottom", "full"].includes(value?.region) ? value.region : "full";
+        } catch {
+          return "full";
+        }
+      })(),
     })),
   });
 });

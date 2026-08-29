@@ -59,12 +59,18 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
 
     messages.push({ role: "assistant", content: resp.content });
 
-    if (resp.stop_reason !== "tool_use") {
+    // A response can contain valid tool calls even when the provider labels the
+    // stop as max_tokens. Always execute the calls that are actually present.
+    const toolUses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (toolUses.length === 0) {
+      if (!ctx.state.finished && turns < config.maxTurns && costUsd <= config.maxCostUsd) {
+        messages.push({ role: "user", content: "Fortsätt nu genom att anropa nästa nödvändiga verktyg. Avsluta inte med vanlig text; kalla finish när guiden är klar eller ärligt blockerad." });
+        continue;
+      }
       if (!ctx.state.finished) ctx.state.finished = { outcome: "failed", message: "Orkestreringen avbröts oväntat." };
       break;
     }
 
-    const toolUses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     const results = await Promise.all(
       toolUses.map(async (tu): Promise<Anthropic.ToolResultBlockParam> => {
         try {
