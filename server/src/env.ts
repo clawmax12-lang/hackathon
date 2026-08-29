@@ -1,4 +1,19 @@
+import fs from "node:fs";
 import path from "node:path";
+
+// Load .env (repo root) as a fallback: values already present in the real
+// environment always win, matching the machine-level secret-store precedence.
+for (const envPath of [path.resolve(process.cwd(), ".env"), path.resolve(import.meta.dirname, "../../.env")]) {
+  try {
+    for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
+      const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+    }
+    break;
+  } catch {
+    /* no .env here — fine */
+  }
+}
 
 function str(name: string, fallback = ""): string {
   const v = process.env[name];
