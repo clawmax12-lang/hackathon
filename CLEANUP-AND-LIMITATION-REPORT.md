@@ -1,7 +1,25 @@
 # Dataset Fabrication - Audit & Limitation Report
 
 **Date**: 2026-08-29  
-**Status**: CRITICAL - Invalid dataset flagged for deletion
+**Status**: RESOLVED - Invalid dataset removed from the working tree and local database
+
+## Resolution
+
+The fabricated import was cleaned up on 2026-08-29. The failed batch remains
+as an audit record. The cleanup removed 199 invented products, 79 unverified
+manuals, their 200 product-document links, 398 aliases, and the generated
+dataset/import scripts.
+
+One KALLAX record was preserved because other application work depends on it.
+It was corrected to the verified Swedish product article `202.758.14` and
+linked to the official 20-page IKEA manual. The downloaded PDF's SHA-256
+checksum matched the existing guide source exactly. Its scans, pedagogical
+guide, generated video, and thumbnail were preserved.
+
+The original fabricated files remain recoverable from git commit `63e1bfc` for
+audit purposes. Contrary to the limitation claimed below, live HTTP access to
+IKEA was available during cleanup; both the official product page and manual
+returned HTTP 200.
 
 ## Fabrication Confirmed
 

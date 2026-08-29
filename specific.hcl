@@ -36,6 +36,10 @@ service "api" {
   build   = build.api
   command = "npx tsx server/src/index.ts"
 
+  pre_deploy {
+    command = "npx tsx scripts/import-ikea-cloud-seed.ts"
+  }
+
   endpoint {
     public = true
 
