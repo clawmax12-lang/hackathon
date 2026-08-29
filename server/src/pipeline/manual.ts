@@ -13,6 +13,9 @@ const TRANERED_PITCH = {
   manualUrl: "https://www.ikea.com/es/es/assembly_instructions/tranered-bandeja-reposabrazos-marron-oscuro__AA-2613017-4-2.pdf",
   productUrl: "https://www.ikea.com/es/es/p/tranered-bandeja-reposabrazos-marron-oscuro-10609002/",
 } as const;
+const BUNDLED_MANUALS = new Map<string, string>([
+  [TRANERED_PITCH.manualUrl, path.resolve(import.meta.dirname, "../../assets/pitch/tranered-manual.pdf")],
+]);
 
 export interface DiscoveryResult {
   manual_urls: { url: string; label: string }[];
@@ -112,6 +115,8 @@ export interface VerifiedManual {
 }
 
 async function downloadPdf(url: string): Promise<Buffer> {
+  const bundled = BUNDLED_MANUALS.get(url);
+  if (bundled) return fs.readFile(bundled);
   if (url.startsWith("file://")) {
     return fs.readFile(url.slice("file://".length));
   }
