@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { config } from "../env.js";
 import { maybeOne, one, query } from "../db.js";
 import { hub, STAGE_INDEX, type ScanEvent, type StageKey } from "../sse.js";
-import { getProduct, lookupCatalog, registerProductFromWeb } from "../pipeline/catalog.js";
+import { findReadyGuideByItemNumbers, getProduct, lookupCatalog, registerProductFromWeb } from "../pipeline/catalog.js";
 import { discoverManual, fetchAndVerifyManualPdf, getManualDocument, listPageFiles } from "../pipeline/manual.js";
 import { identifyProductFromImage } from "../pipeline/identify.js";
 import { synthesizeNarration } from "../pipeline/narration.js";
@@ -34,6 +34,45 @@ export function emit(ctx: ToolContext, event: ScanEvent): void {
 
 function stage(ctx: ToolContext, key: StageKey, status: "started" | "done", detail?: string): void {
   emit(ctx, { type: "stage", index: STAGE_INDEX[key], key, status, detail });
+}
+
+async function finishFromReadyGuide(ctx: ToolContext, itemNumbers: string[]): Promise<boolean> {
+  const cached = await findReadyGuideByItemNumbers(itemNumbers);
+  if (!cached) return false;
+
+  await query(
+    `UPDATE furniture_scans
+        SET status = 'matched', extracted_item_number = $2, matched_product_id = $3,
+            match_method = 'item_number', match_confidence = 0.98
+      WHERE id = $1`,
+    [ctx.scanId, cached.item_number, cached.product_id],
+  );
+  ctx.state.productId = cached.product_id;
+  ctx.state.guideId = cached.guide_id;
+  ctx.state.guideTitle = cached.guide_title;
+  ctx.state.stepCount = cached.step_count;
+
+  stage(ctx, "reading_label", "done", `Läste art.nr ${cached.item_number}`);
+  stage(ctx, "identifying", "started");
+  emit(ctx, {
+    type: "product_match",
+    productId: cached.product_id,
+    name: cached.product_name,
+    itemNumber: cached.item_number,
+    variant: cached.variant ?? undefined,
+    confidence: 0.98,
+    method: "item_number",
+    candidates: [],
+  });
+  stage(ctx, "identifying", "done", `${cached.product_name} · exakt artikelnummer`);
+  stage(ctx, "finding_instructions", "started", "Kontrollerar den färdiga guiden…");
+  stage(ctx, "finding_instructions", "done", "Verifierad manual och guide hittad i cache");
+  stage(ctx, "planning", "started");
+  stage(ctx, "planning", "done", `${cached.step_count} färdiga steg`);
+  stage(ctx, "rendering", "started");
+  stage(ctx, "rendering", "done", "Berättarröst och guide klara");
+  ctx.state.finished = { outcome: "success", message: "Den färdiga guiden hittades via exakt artikelnummer." };
+  return true;
 }
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
@@ -219,6 +258,9 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         id.visible_text.slice(0, 4000),
         id.item_number_candidates[0] ?? null,
       ]);
+      if (await finishFromReadyGuide(ctx, id.item_number_candidates)) {
+        return JSON.stringify({ ...id, user_note: ctx.userNote, cache_hit: true });
+      }
       stage(ctx, "reading_label", "done", id.product_name_guess ? `Läste: ${id.product_name_guess}` : undefined);
       stage(ctx, "identifying", "started");
       return JSON.stringify({ ...id, user_note: ctx.userNote });

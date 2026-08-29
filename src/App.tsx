@@ -38,6 +38,7 @@ import {
   askQuestion,
   getGuide,
   getPublicConfig,
+  getScan,
   logMiss,
   openScanEvents,
   startScan,
@@ -538,6 +539,8 @@ export default function App() {
       });
     }
     else if (event.type === "product_match") {
+      if (scanTimeoutRef.current) window.clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
       setMatch(event);
       setTrace((current) => [...current.map((step) => step.status === "active" ? { ...step, status: "done" as const } : step), { id: "identified", label: event.name, detail: event.itemNumber ? `art.nr ${event.itemNumber}` : undefined, status: "active" }]);
     }
@@ -561,7 +564,22 @@ export default function App() {
     setScanId(null);
     setView("processing"); setTrace([{ id: "upload", label: "Skickar bilden…", status: "active" }]); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(true);
     retakeTimerRef.current = window.setTimeout(() => { setRetakeAllowed(false); retakeTimerRef.current = null; }, 1000);
-    scanTimeoutRef.current = window.setTimeout(() => {
+    scanTimeoutRef.current = window.setTimeout(async () => {
+      const activeScanId = currentScanIdRef.current;
+      if (activeScanId) {
+        try {
+          const state = await getScan(activeScanId);
+          if (state.extractedItemNumber || state.match) {
+            scanTimeoutRef.current = null;
+            setTrace((current) => current.map((step) => step.status === "active"
+              ? { ...step, detail: state.extractedItemNumber ? `Läste art.nr ${state.extractedItemNumber} · matchar katalogen…` : step.detail }
+              : step));
+            return;
+          }
+        } catch {
+          // Fall through to the existing recovery offer if status cannot be confirmed.
+        }
+      }
       closeEventsRef.current?.(); closeEventsRef.current = null; setRetakeAllowed(false); setTrace((current) => current.map((step) => ({ ...step, status: "done" }))); recordMiss(); setError("Bearbetningen tog längre än 15 sekunder."); setView("processing");
     }, 15_000);
     try { const { scanId: nextScanId } = await startScan({ photo: captured.file, note: note?.trim() || undefined }); currentScanIdRef.current = nextScanId; setScanId(nextScanId); closeEventsRef.current = openScanEvents(nextScanId, handleEvent); }
