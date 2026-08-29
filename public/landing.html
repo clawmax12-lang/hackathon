@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Allen — gör om vilken manual som helst till en video</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-void:#0a0b0d;
+    --bg-panel:#151719;
+    --bg-panel-2:#1b1e21;
+    --border-line:#2a2d31;
+    --border-line-soft:#212427;
+    --text-primary:#f2f3f1;
+    --text-secondary:#9a9ea6;
+    --text-tertiary:#6b6f76;
+    --neon:#3dff7a;
+    --neon-dim:rgba(61,255,122,0.14);
+    --neon-line:rgba(61,255,122,0.35);
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--bg-void);
+    color:var(--text-primary);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  h1,h2,h3{
+    font-family:'Space Grotesk',sans-serif;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .mono{
+    font-family:'IBM Plex Mono',monospace;
+    letter-spacing:0.02em;
+  }
+  a{color:inherit;}
+  button{font-family:inherit;}
+  ::selection{background:var(--neon-dim);color:var(--neon);}
+  :focus-visible{
+    outline:2px solid var(--neon);
+    outline-offset:3px;
+    border-radius:4px;
+  }
+  .wrap{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 32px;
+  }
+  /* background texture: faint blueprint grid */
+  .grid-bg{
+    position:fixed;
+    inset:0;
+    z-index:0;
+    pointer-events:none;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.028) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.028) 1px, transparent 1px);
+    background-size:64px 64px;
+    -webkit-mask-image:radial-gradient(ellipse 70% 55% at 50% 0%, #000 40%, transparent 85%);
+    mask-image:radial-gradient(ellipse 70% 55% at 50% 0%, #000 40%, transparent 85%);
+  }
+  /* ---------- nav ---------- */
+  nav{
+    position:relative;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:26px 0;
+  }
+  .logo{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    font-size:19px;
+    font-weight:700;
+  }
+  .logo-mark{
+    width:20px;height:20px;
+    border:2px solid var(--neon);
+    border-radius:5px;
+    position:relative;
+    transform:rotate(45deg);
+    flex-shrink:0;
+  }
+  .logo-mark::after{
+    content:'';
+    position:absolute;
+    inset:4px;
+    border-radius:2px;
+    background:var(--neon);
+    box-shadow:0 0 12px 1px var(--neon);
+  }
+  .nav-cta{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    font-weight:500;
+    color:var(--bg-void);
+    background:var(--neon);
+    border:none;
+    padding:10px 18px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .nav-cta:hover{
+    transform:translateY(-1px);
+    box-shadow:0 4px 22px -4px var(--neon-line);
+  }
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative;
+    z-index:1;
+    display:grid;
+    grid-template-columns:1.05fr 0.95fr;
+    gap:40px;
+    align-items:center;
+    padding:64px 0 88px;
+  }
+  .eyebrow{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--neon);
+    font-weight:500;
+    text-transform:uppercase;
+    margin-bottom:22px;
+  }
+  .eyebrow::before{
+    content:'';
+    width:6px;height:6px;
+    border-radius:50%;
+    background:var(--neon);
+    box-shadow:0 0 8px 1px var(--neon);
+  }
+  .hero h1{
+    font-size:clamp(34px, 4.4vw, 54px);
+    font-weight:700;
+    line-height:1.05;
+    max-width:620px;
+  }
+  .hero h1 em{
+    font-style:normal;
+    color:var(--neon);
+  }
+  .hero p.sub{
+    margin-top:22px;
+    font-size:17px;
+    color:var(--text-secondary);
+    max-width:480px;
+  }
+  .waitlist-form{
+    margin-top:34px;
+    display:flex;
+    gap:10px;
+    max-width:460px;
+  }
+  .waitlist-form input{
+    flex:1;
+    background:var(--bg-panel);
+    border:1px solid var(--border-line);
+    color:var(--text-primary);
+    font-size:15px;
+    padding:14px 16px;
+    border-radius:9px;
+    font-family:inherit;
+    min-width:0;
+  }
+  .waitlist-form input::placeholder{color:var(--text-tertiary);}
+  .waitlist-form input:focus{
+    outline:none;
+    border-color:var(--neon);
+    box-shadow:0 0 0 3px var(--neon-dim);
+  }
+  .join-btn{
+    background:var(--neon);
+    color:var(--bg-void);
+    border:none;
+    font-weight:600;
+    font-size:15px;
+    padding:14px 22px;
+    border-radius:9px;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+  }
+  .join-btn:hover{transform:translateY(-1px); box-shadow:0 6px 26px -6px var(--neon-line);}
+  .join-btn:disabled{opacity:.6; cursor:default; transform:none; box-shadow:none;}
+  .form-note{
+    margin-top:12px;
+    font-size:13px;
+    color:var(--text-tertiary);
+    min-height:18px;
+  }
+  .form-note.success{color:var(--neon);}
+  .form-note.error{color:#ff6b6b;}
+  /* ---------- signature hero graphic ---------- */
+  .diagram{
+    position:relative;
+    aspect-ratio:1/0.95;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .diagram svg{width:100%;height:100%;overflow:visible;}
+  .part{ animation:drift 6s ease-in-out infinite; }
+  .part.p2{animation-delay:.4s;}
+  .part.p3{animation-delay:.9s;}
+  .part.p4{animation-delay:1.3s;}
+  @keyframes drift{
+    0%,100%{transform:translateY(0);}
+    50%{transform:translateY(-7px);}
+  }
+  .guide-line{
+    stroke:var(--border-line);
+    stroke-width:1.4;
+    stroke-dasharray:4 5;
+    fill:none;
+    animation:march 22s linear infinite;
+  }
+  @keyframes march{to{stroke-dashoffset:-400;}}
+  .play-glow{ filter:drop-shadow(0 0 18px var(--neon-line)); }
+  .step-badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    fill:var(--text-tertiary);
+  }
+  @media (prefers-reduced-motion:reduce){
+    .part{animation:none;}
+    .guide-line{animation:none;}
+  }
+  /* ---------- how it works ---------- */
+  .section-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:20px;
+    margin-bottom:44px;
+    flex-wrap:wrap;
+  }
+  .section-head h2{
+    font-size:clamp(24px,2.6vw,32px);
+    font-weight:600;
+  }
+  .section-tag{
+    font-size:12px;
+    color:var(--text-tertiary);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+  }
+  .steps{
+    position:relative;
+    z-index:1;
+    padding:70px 0 30px;
+    border-top:1px solid var(--border-line-soft);
+  }
+  .steps-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:26px;
+  }
+  .step{
+    background:var(--bg-panel);
+    border:1px solid var(--border-line);
+    border-radius:14px;
+    padding:26px 24px 28px;
+  }
+  .step .num{
+    font-size:12px;
+    color:var(--neon);
+    margin-bottom:18px;
+    display:block;
+  }
+  .step h3{
+    font-size:18px;
+    font-weight:600;
+    margin-bottom:10px;
+  }
+  .step p{
+    font-size:14.5px;
+    color:var(--text-secondary);
+    margin:0;
+  }
+  /* ---------- feature cards (provided component, restyled) ---------- */
+  .features{
+    position:relative;
+    z-index:1;
+    padding:80px 0 30px;
+  }
+  .byq-gem--spotlight-glow-cards-01__row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:22px;
+    list-style:none;
+    margin:0;
+    padding:0;
+  }
+  .byq-gem--spotlight-glow-cards-01__card{
+    position:relative;
+    background:var(--bg-panel);
+    border:1px solid var(--border-line);
+    border-radius:14px;
+    padding:28px 24px;
+    overflow:hidden;
+    cursor:default;
+    transition:border-color .2s ease, transform .2s ease;
+  }
+  .byq-gem--spotlight-glow-cards-01__card::before{
+    content:'';
+    position:absolute;
+    inset:0;
+    border-radius:inherit;
+    background:radial-gradient(280px circle at var(--mx,50%) var(--my,50%), var(--neon-dim), transparent 65%);
+    opacity:0;
+    transition:opacity .25s ease;
+    pointer-events:none;
+  }
+  .byq-gem--spotlight-glow-cards-01__card:hover,
+  .byq-gem--spotlight-glow-cards-01__card:focus-visible{
+    border-color:var(--neon-line);
+    transform:translateY(-2px);
+  }
+  .byq-gem--spotlight-glow-cards-01__card:hover::before,
+  .byq-gem--spotlight-glow-cards-01__card:focus-visible::before{
+    opacity:1;
+  }
+  .byq-gem--spotlight-glow-cards-01__tag{
+    position:relative;
+    z-index:1;
+    display:inline-block;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    color:var(--neon);
+    background:var(--neon-dim);
+    padding:5px 10px;
+    border-radius:5px;
+    margin-bottom:16px;
+  }
+  .byq-gem--spotlight-glow-cards-01__title{
+    position:relative;
+    z-index:1;
+    font-size:18px;
+    font-weight:600;
+    line-height:1.3;
+    margin:0;
+  }
+  /* ---------- bottom CTA ---------- */
+  .cta-band{
+    position:relative;
+    z-index:1;
+    margin:96px 0 60px;
+    padding:56px 40px;
+    background:var(--bg-panel);
+    border:1px solid var(--border-line);
+    border-radius:20px;
+    text-align:center;
+  }
+  .cta-band h2{
+    font-size:clamp(24px,3vw,34px);
+    font-weight:700;
+    max-width:560px;
+    margin:0 auto 14px;
+  }
+  .cta-band p{
+    color:var(--text-secondary);
+    font-size:15px;
+    max-width:460px;
+    margin:0 auto 28px;
+  }
+  .cta-band .waitlist-form{margin:0 auto;}
+  .counter{
+    margin-top:18px;
+    font-size:13px;
+    color:var(--text-tertiary);
+  }
+  .counter strong{color:var(--neon);}
+  footer{
+    position:relative;
+    z-index:1;
+    border-top:1px solid var(--border-line-soft);
+    padding:28px 0 40px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:13px;
+    color:var(--text-tertiary);
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  @media (max-width:860px){
+    .hero{grid-template-columns:1fr; padding-top:36px;}
+    .diagram{order:-1; max-width:340px; margin:0 auto 20px;}
+    .steps-row,.byq-gem--spotlight-glow-cards-01__row{grid-template-columns:1fr;}
+    .waitlist-form{flex-direction:column;}
+    .join-btn{width:100%;}
+    .cta-band{padding:40px 22px;}
+  }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="wrap">
+  <nav>
+    <div class="logo"><span class="logo-mark"></span>Allen</div>
+    <button class="nav-cta" onclick="document.getElementById('email-input').focus()">Ställ dig i kön</button>
+  </nav>
+  <section class="hero">
+    <div>
+      <span class="eyebrow">Platta paket, uppackade</span>
+      <h1>Gör om vilken monteringsanvisning som helst till en video du <em>faktiskt</em> kan följa.</h1>
+      <p class="sub">Ladda upp manualen — IKEA eller vad som helst. Vår AI gör om diagrammen till en kort, uttalad video steg för steg, så du slipper kisa på sprängskisser och räkna skruvar fel.</p>
+      <form class="waitlist-form" id="waitlist-form">
+        <input id="email-input" type="email" required placeholder="du@mejl.se" aria-label="E-postadress">
+        <button type="submit" class="join-btn" id="join-btn">Ställ dig i kön</button>
+      </form>
+      <div class="form-note" id="form-note">Vi mejlar dig samma dag vi lanserar. Ingen skräppost — vi tycker också det är jobbigt att läsa instruktioner.</div>
+    </div>
+    <div class="diagram" aria-hidden="true">
+      <svg viewBox="0 0 380 360">
+        <path class="guide-line" d="M60 70 L165 165"></path>
+        <path class="guide-line" d="M320 60 L215 160"></path>
+        <path class="guide-line" d="M50 300 L170 205"></path>
+        <path class="guide-line" d="M330 310 L220 210"></path>
+        <g class="part p1">
+          <rect x="20" y="30" width="90" height="60" rx="6" fill="#1b1e21" stroke="#2a2d31"/>
+          <line x1="34" y1="46" x2="96" y2="46" stroke="#3a3d42" stroke-width="2"/>
+          <line x1="34" y1="60" x2="96" y2="60" stroke="#3a3d42" stroke-width="2"/>
+          <line x1="34" y1="74" x2="80" y2="74" stroke="#3a3d42" stroke-width="2"/>
+        </g>
+        <g class="part p2">
+          <rect x="272" y="16" width="76" height="76" rx="8" fill="#1b1e21" stroke="#2a2d31"/>
+          <circle cx="292" cy="36" r="5" fill="none" stroke="#3a3d42" stroke-width="2"/>
+          <circle cx="328" cy="36" r="5" fill="none" stroke="#3a3d42" stroke-width="2"/>
+          <circle cx="292" cy="72" r="5" fill="none" stroke="#3a3d42" stroke-width="2"/>
+          <circle cx="328" cy="72" r="5" fill="none" stroke="#3a3d42" stroke-width="2"/>
+        </g>
+        <g class="part p3">
+          <rect x="10" y="260" width="100" height="46" rx="6" fill="#1b1e21" stroke="#2a2d31"/>
+          <circle cx="30" cy="283" r="4" fill="#3dff7a" opacity="0.5"/>
+          <circle cx="90" cy="283" r="4" fill="#3dff7a" opacity="0.5"/>
+        </g>
+        <g class="part p4">
+          <rect x="284" y="270" width="80" height="60" rx="6" fill="#1b1e21" stroke="#2a2d31"/>
+          <line x1="298" y1="288" x2="352" y2="288" stroke="#3a3d42" stroke-width="2"/>
+          <line x1="298" y1="302" x2="352" y2="302" stroke="#3a3d42" stroke-width="2"/>
+          <line x1="298" y1="316" x2="336" y2="316" stroke="#3a3d42" stroke-width="2"/>
+        </g>
+        <text x="24" y="24" class="step-badge">A</text>
+        <text x="276" y="12" class="step-badge">B</text>
+        <text x="14" y="254" class="step-badge">C</text>
+        <text x="288" y="264" class="step-badge">D</text>
+        <g class="play-glow">
+          <circle cx="190" cy="180" r="38" fill="#101214" stroke="#3dff7a" stroke-width="1.6"/>
+          <path d="M180 163 L212 180 L180 197 Z" fill="#3dff7a"/>
+        </g>
+      </svg>
+    </div>
+  </section>
+  <section class="steps" id="how">
+    <div class="section-head">
+      <h2>Från manual till video, i tre steg</h2>
+      <span class="section-tag">Så funkar det</span>
+    </div>
+    <div class="steps-row">
+      <div class="step">
+        <span class="num mono">01 — FÅNGA</span>
+        <h3>Fota eller ladda upp</h3>
+        <p>Fotografera pappersmanualen, eller släpp in pdf:en. Vilket märke som helst, vilken produkt som helst, oavsett vilket språk den är tryckt på.</p>
+      </div>
+      <div class="step">
+        <span class="num mono">02 — GENERERA</span>
+        <h3>AI bygger videon</h3>
+        <p>Vi läser varje diagram och dellista, och skapar sedan en kort, uttalad genomgång anpassad efter just din möbel.</p>
+      </div>
+      <div class="step">
+        <span class="num mono">03 — MONTERA</span>
+        <h3>Följ med utan att bläddra</h3>
+        <p>Spela upp den bredvid dina delar. Pausa, spola tillbaka eller spela om det steget du alltid gör fel.</p>
+      </div>
+    </div>
+  </section>
+  <section class="features">
+    <div class="section-head">
+      <h2>Byggd för stunden när du sitter på golvet, omringad av skruvar</h2>
+      <span class="section-tag">Varför det funkar</span>
+    </div>
+    <ul class="byq-gem--spotlight-glow-cards-01__row">
+      <li class="byq-gem--spotlight-glow-cards-01__card" tabindex="0">
+        <span class="byq-gem--spotlight-glow-cards-01__tag">Alla manualer</span>
+        <h3 class="byq-gem--spotlight-glow-cards-01__title">Fungerar med alla manualer, alla märken</h3>
+      </li>
+      <li class="byq-gem--spotlight-glow-cards-01__card" tabindex="0">
+        <span class="byq-gem--spotlight-glow-cards-01__tag">Ditt tempo</span>
+        <h3 class="byq-gem--spotlight-glow-cards-01__title">Pausa, spola tillbaka och hoppa över det klurigaste steget</h3>
+      </li>
+      <li class="byq-gem--spotlight-glow-cards-01__card" tabindex="0">
+        <span class="byq-gem--spotlight-glow-cards-01__tag">Alla språk</span>
+        <h3 class="byq-gem--spotlight-glow-cards-01__title">Instruktioner, äntligen uttalade på ditt språk</h3>
+      </li>
+    </ul>
+  </section>
+  <section class="cta-band">
+    <h2>Tappa aldrig tråden — eller skruvarna.</h2>
+    <p>Var först med att testa Allen. Vi lanserar med IKEA:s mest returnerade möbler.</p>
+    <form class="waitlist-form" id="waitlist-form-2">
+      <input type="email" required placeholder="du@mejl.se" aria-label="E-postadress">
+      <button type="submit" class="join-btn">Ställ dig i kön</button>
+    </form>
+    <div class="form-note" id="form-note-2"></div>
+    <div class="counter" id="counter">Laddar kölistan…</div>
+  </section>
+  <footer>
+    <span>Allen — byggd på ett hackathon, en insexnyckel i taget.</span>
+    <span>© 2026</span>
+  </footer>
+</div>
+<script>
+  // ---- spotlight glow cursor tracking ----
+  document.querySelectorAll('.byq-gem--spotlight-glow-cards-01__card').forEach(card => {
+    card.addEventListener('mousemove', e => {
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
+      card.style.setProperty('--my', (e.clientY - rect.top) + 'px');
+    });
+  });
+  // ---- waitlist storage logic ----
+  const counterEl = document.getElementById('counter');
+  async function refreshCount(){
+    try{
+      const res = await window.storage.list('waitlist:', true);
+      const n = res && res.keys ? res.keys.length : 0;
+      counterEl.innerHTML = n > 0
+        ? `<strong>${n}</strong> ${n === 1 ? 'person' : 'personer'} står redan i kön`
+        : 'Bli den första i kön';
+      return n;
+    }catch(err){
+      counterEl.textContent = '';
+      return null;
+    }
+  }
+  function isValidEmail(v){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  }
+  function wireForm(formEl, noteEl, btnOverride){
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = formEl.querySelector('input[type="email"]');
+      const btn = btnOverride || formEl.querySelector('button');
+      const email = input.value.trim().toLowerCase();
+      if(!isValidEmail(email)){
+        if(noteEl){ noteEl.textContent = 'Den där mejladressen ser inte rätt ut — kolla gärna igen.'; noteEl.className = 'form-note error'; }
+        return;
+      }
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = 'Ställer dig i kön…';
+      try{
+        const key = 'waitlist:' + email;
+        let already = false;
+        try{
+          await window.storage.get(key, true);
+          already = true;
+        }catch(_){ already = false; }
+        if(!already){
+          await window.storage.set(key, JSON.stringify({ email, joinedAt: new Date().toISOString() }), true);
+        }
+        const n = await refreshCount();
+        input.value = '';
+        if(noteEl){
+          noteEl.textContent = already
+            ? 'Du står redan i kön ✓'
+            : `Du står i kön ✓ ${n ? '(#' + n + ')' : ''}`;
+          noteEl.className = 'form-note success';
+        }
+      }catch(err){
+        if(noteEl){ noteEl.textContent = 'Något gick fel när vi sparade det — försök igen om en stund.'; noteEl.className = 'form-note error'; }
+      }finally{
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+  }
+  wireForm(document.getElementById('waitlist-form'), document.getElementById('form-note'));
+  wireForm(document.getElementById('waitlist-form-2'), document.getElementById('form-note-2'));
+  refreshCount();
+</script>
+</body>
+</html>
