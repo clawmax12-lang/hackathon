@@ -44,7 +44,12 @@ async function seedCatalog(): Promise<void> {
     return;
   }
 
-  console.log("[hero-guide] TRANERED guide ready; hydrating verified catalog");
+  console.log("[hero-guide] TRANERED guide ready; rendering step-by-step pitch video");
+  const videoCode = await waitFor(start(["scripts/seed-hero-video.ts"]));
+  if (videoCode === 0) console.log("[hero-video] TRANERED pitch video ready");
+  else console.error(`[hero-video] render failed with code ${videoCode ?? "unknown"}; API remains available`);
+
+  console.log("[hero-video] hydrating verified catalog");
   const syncCode = await waitFor(start(["scripts/import-ikea-cloud-seed.ts"]));
   if (syncCode === 0) console.log("[catalog-sync] verified IKEA manual sync complete");
   else console.error(`[catalog-sync] sync exited with code ${syncCode ?? "unknown"}; it will retry on restart`);
