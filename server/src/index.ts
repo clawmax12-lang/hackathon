@@ -13,6 +13,7 @@ import { scans } from "./routes/scans.js";
 import { guides } from "./routes/guides.js";
 import { startJobRunner } from "./jobs.js";
 import { commercial } from "./routes/commercial.js";
+import { waitlist } from "./routes/waitlist.js";
 
 const exec = promisify(execFile);
 const app = new Hono();
@@ -22,6 +23,7 @@ app.use("/api/*", cors());
 app.route("/api/scans", scans);
 app.route("/api/guides", guides);
 app.route("/api", commercial);
+app.route("/api/waitlist", waitlist);
 
 // Asset streaming with HTTP Range support (video seeking in Safari/Chrome).
 app.get("/api/assets/*", async (c) => {
