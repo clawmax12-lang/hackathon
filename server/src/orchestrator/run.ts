@@ -20,13 +20,30 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
   let turns = 0;
   const deadline = Date.now() + 12 * 60 * 1000;
 
+  let initialIdentification: string | null = null;
+  if (!ctx.pinnedProductId) {
+    try {
+      const result = await executeTool("identify_product_from_image", {}, ctx);
+      initialIdentification = typeof result === "string" ? result : null;
+      if (ctx.state.finished) {
+        await finalizeRun(ctx);
+        return;
+      }
+    } catch (err) {
+      console.warn(`[orchestrator] fast identification failed for scan ${ctx.scanId}; retrying in tool loop`, err);
+    }
+  }
+
   const taskLines = [
     `New scan. scan_id: ${ctx.scanId}.`,
     ctx.userNote ? `The user wrote: "${ctx.userNote}"` : "The user attached only a photo.",
     ctx.pinnedProductId
       ? `The user explicitly selected product_id ${ctx.pinnedProductId} — skip identification, confirm this product and proceed.`
-      : "Identify the product from the photo first.",
+      : initialIdentification
+        ? "Vision identification is already complete below. Start with lookup_catalog; do not identify the image again."
+        : "Identify the product from the photo first.",
     "Drive the pipeline to a finished video, then call finish.",
+    initialIdentification ? `IDENTIFICATION_RESULT:\n${initialIdentification}` : "",
   ];
 
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: taskLines.join("\n") }];

@@ -93,6 +93,7 @@ scans.get("/:id", async (c) => {
   const scanId = c.req.param("id");
   const row = await maybeOne<{
     status: string;
+    extracted_item_number: string | null;
     matched_product_id: string | null;
     match_confidence: number | null;
     product_name: string | null;
@@ -100,7 +101,7 @@ scans.get("/:id", async (c) => {
     guide_status: string | null;
     video_status: string | null;
   }>(
-    `SELECT fs.status, fs.matched_product_id, fs.match_confidence, p.name AS product_name,
+    `SELECT fs.status, fs.extracted_item_number, fs.matched_product_id, fs.match_confidence, p.name AS product_name,
             ag.id AS guide_id, ag.status AS guide_status, gv.status AS video_status
        FROM furniture_scans fs
        LEFT JOIN products p ON p.id = fs.matched_product_id
@@ -116,6 +117,7 @@ scans.get("/:id", async (c) => {
     row.video_status === "ready" ? 5 : row.guide_status ? 4 : row.matched_product_id ? 2 : row.status === "recognizing" ? 1 : 0;
   return c.json({
     status: row.status,
+    extractedItemNumber: row.extracted_item_number,
     stageIndex,
     match: row.matched_product_id
       ? { productId: row.matched_product_id, name: row.product_name, confidence: row.match_confidence }

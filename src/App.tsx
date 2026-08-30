@@ -551,6 +551,8 @@ export default function App() {
       });
     }
     else if (event.type === "product_match") {
+      if (scanTimeoutRef.current) window.clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
       setMatch(event);
       setTrace((current) => [...current.map((step) => step.status === "active" ? { ...step, status: "done" as const } : step), { id: "identified", label: event.name, detail: event.itemNumber ? `art.nr ${event.itemNumber}` : undefined, status: "active" }]);
     }

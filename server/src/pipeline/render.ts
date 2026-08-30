@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,8 +13,19 @@ import { listPageFiles } from "./manual.js";
 
 const exec = promisify(execFile);
 
-const FONT = "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf";
-const FONT_REGULAR = "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf";
+function installedFont(name: "Bold" | "Regular"): string {
+  const candidates = [
+    `/usr/share/fonts/truetype/liberation2/LiberationSans-${name}.ttf`,
+    `/usr/share/fonts/liberation-sans/LiberationSans-${name}.ttf`,
+    `/usr/share/fonts/truetype/liberation/LiberationSans-${name}.ttf`,
+  ];
+  const found = candidates.find((candidate) => fsSync.existsSync(candidate));
+  if (!found) throw new Error(`Liberation Sans ${name} is not installed`);
+  return found;
+}
+
+const FONT = installedFont("Bold");
+const FONT_REGULAR = installedFont("Regular");
 const PAPER = "0xf7f4ee";
 const INK = "0x1a1c20";
 const AMBER = "0xb45309";
@@ -104,7 +117,7 @@ async function buildScene(scene: SceneSpec, workDir: string, index: number): Pro
   let last = "[v2]";
   if (scene.safetyText) {
     const sFile = path.join(workDir, `s-${index}.txt`);
-    await fs.writeFile(sFile, "⚠ " + scene.safetyText);
+    await fs.writeFile(sFile, scene.safetyText);
     filters.push(
       `[v2]drawtext=fontfile=${FONT}:textfile='${sFile}':fontsize=38:fontcolor=0xffffff:box=1:boxcolor=${AMBER}@0.94:boxborderw=16:x=72:y=170:line_spacing=10[v3]`,
     );
@@ -168,13 +181,15 @@ export async function renderVideo(
     title: string;
     instruction: string;
     safety_warning: string | null;
+    estimated_seconds: number | null;
     manual_pages: number[] | null;
     parts: string[] | null;
     tools: string[] | null;
     focus_region: string | null;
-    visual_prompt: string | null;
   }>(
-    "SELECT step_number, title, instruction, safety_warning, manual_pages, parts, tools, focus_region, visual_prompt FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number",
+    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, manual_pages, parts, tools,
+            to_jsonb(assembly_steps)->>'focus_region' AS focus_region
+       FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number`,
     [guideId],
   );
   if (steps.length === 0) throw new Error("guide has no steps");
@@ -188,8 +203,10 @@ export async function renderVideo(
   await query(`UPDATE generated_videos SET status = 'generating', updated_at = now() WHERE guide_id = $1`, [guideId]);
 
   const pageFiles = guide.manual_document_id ? await listPageFiles(guide.manual_document_id, "video") : [];
-  const workDir = pathFor(`work/${guideId}`);
-  await fs.rm(workDir, { recursive: true, force: true });
+  // Jobs for the same guide can overlap during a deploy restart or retry. Give
+  // each one an isolated workspace and only replace public assets once the
+  // staged files are complete.
+  const workDir = pathFor(`work/${guideId}-${randomUUID()}`);
   await fs.mkdir(workDir, { recursive: true });
 
   const audioFor = async (key: string): Promise<{ path: string; seconds: number } | null> => {
@@ -204,7 +221,7 @@ export async function renderVideo(
 
   const allParts = [...new Set(steps.flatMap((s) => s.parts ?? []))].slice(0, 8);
   const allTools = [...new Set(steps.flatMap((s) => s.tools ?? []))].slice(0, 5);
-  const totalMinutes = Math.max(1, Math.round(steps.reduce((acc, s) => acc + 25, 0) / 60));
+  const totalMinutes = Math.max(1, Math.ceil(steps.reduce((acc, s) => acc + (s.estimated_seconds ?? 10), 8) / 60));
 
   const scenes: SceneSpec[] = [];
 
@@ -238,7 +255,7 @@ export async function renderVideo(
       audioPath: audio?.path ?? null,
       titleText: `Steg ${step.step_number} av ${steps.length} — ${wrap(step.title, 30, 1)}`,
       captionText: wrap(step.instruction, 58, 2),
-      safetyText: step.safety_warning ? wrap(step.safety_warning, 60, 1) : null,
+      safetyText: step.safety_warning ? `VARNING: ${wrap(step.safety_warning, 48, 2)}` : null,
       focusRegion: focus,
       narrationSeconds: audio?.seconds ?? 5,
     });
@@ -274,20 +291,24 @@ export async function renderVideo(
   const listFile = path.join(workDir, "concat.txt");
   await fs.writeFile(listFile, sceneFiles.map((f) => `file '${f}'`).join("\n"));
   const videoKey = `videos/${guideId}.mp4`;
+  const stagedVideo = path.join(workDir, "video.mp4");
   await fs.mkdir(path.dirname(pathFor(videoKey)), { recursive: true });
-  await exec("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", "-movflags", "+faststart", pathFor(videoKey)], {
+  await exec("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", "-movflags", "+faststart", stagedVideo], {
     timeout: 120000,
     maxBuffer: 16 * 1024 * 1024,
   });
+  await fs.rename(stagedVideo, pathFor(videoKey));
 
   const thumbKey = `thumbs/${guideId}.jpg`;
+  const stagedThumb = path.join(workDir, "thumbnail.jpg");
   await fs.mkdir(path.dirname(pathFor(thumbKey)), { recursive: true });
   const firstStepScene = sceneFiles[1] ?? sceneFiles[0];
   await exec(
     "ffmpeg",
-    ["-y", "-ss", "1.0", "-i", firstStepScene, "-frames:v", "1", "-update", "1", "-vf", "scale=1280:-2", pathFor(thumbKey)],
+    ["-y", "-ss", "1.0", "-i", firstStepScene, "-frames:v", "1", "-update", "1", "-vf", "scale=1280:-2", stagedThumb],
     { timeout: 60000 },
   );
+  await fs.rename(stagedThumb, pathFor(thumbKey));
 
   const durationSeconds = await audioDurationSeconds(pathFor(videoKey));
 

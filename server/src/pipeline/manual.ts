@@ -8,6 +8,14 @@ import { pathFor, putFile, sha256, storeAsset } from "../storage.js";
 
 const exec = promisify(execFile);
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+const TRANERED_PITCH = {
+  articleNumber: "10609002",
+  manualUrl: "https://www.ikea.com/es/es/assembly_instructions/tranered-bandeja-reposabrazos-marron-oscuro__AA-2613017-4-2.pdf",
+  productUrl: "https://www.ikea.com/es/es/p/tranered-bandeja-reposabrazos-marron-oscuro-10609002/",
+} as const;
+const BUNDLED_MANUALS = new Map<string, string>([
+  [TRANERED_PITCH.manualUrl, path.resolve(import.meta.dirname, "../../assets/pitch/tranered-manual.pdf")],
+]);
 
 export interface DiscoveryResult {
   manual_urls: { url: string; label: string }[];
@@ -77,6 +85,17 @@ async function discoverFirecrawl(productName: string, itemNumber: string | null)
 }
 
 export async function discoverManual(productName: string, itemNumber: string | null): Promise<DiscoveryResult> {
+  // Pitch-critical golden path: never depend on search results or scrape the
+  // product page when the label already gives us TRANERED's exact article no.
+  if ((itemNumber ?? "").replace(/\D/g, "") === TRANERED_PITCH.articleNumber) {
+    return {
+      manual_urls: [{ url: TRANERED_PITCH.manualUrl, label: "TRANERED assembly manual · 8 pages" }],
+      product_url: TRANERED_PITCH.productUrl,
+      product_image_url: null,
+      product_name: "TRANERED armstödsbricka",
+      item_number: TRANERED_PITCH.articleNumber,
+    };
+  }
   if (config.firecrawlApiKey) {
     try {
       const r = await discoverFirecrawl(productName, itemNumber);
@@ -96,6 +115,8 @@ export interface VerifiedManual {
 }
 
 async function downloadPdf(url: string): Promise<Buffer> {
+  const bundled = BUNDLED_MANUALS.get(url);
+  if (bundled) return fs.readFile(bundled);
   if (url.startsWith("file://")) {
     return fs.readFile(url.slice("file://".length));
   }
