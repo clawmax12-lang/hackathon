@@ -46,7 +46,7 @@ import {
 } from "./lib/api";
 
 type CameraStatus = "starting" | "live" | "fallback";
-type View = "home" | "processing" | "guide" | "error";
+type View = "home" | "processing" | "guide" | "pitch" | "error";
 
 type CapturedPhoto = {
   name: string;
@@ -66,6 +66,18 @@ type ProductMatch = Extract<ScanEvent, { type: "product_match" }>;
 type PublicConfig = { stripePaymentLinkUrl: string | null; guidePriceSek: number };
 
 const SUGGESTIONS = ["Scan package label", "Identify loose parts", "Create assembly guide"];
+const PITCH_MODE = true;
+const PITCH_VIDEO_URL = "/tranered-pitch.mp4";
+const PITCH_MATCH: ProductMatch = {
+  type: "product_match",
+  productId: "tranered-pitch",
+  name: "TRANERED",
+  itemNumber: "106.090.02",
+  variant: "Armstödsbricka · mörkbrun",
+  confidence: 1,
+  method: "pitch",
+  candidates: [],
+};
 
 function freshTrace(): TraceStep[] {
   return [];
@@ -337,8 +349,25 @@ function ThinkingState({ trace, match, renderProgress, elapsedMs, error, recover
         ))}
       </ol>
       {error && <form className="miss-recovery" onSubmit={(event) => { event.preventDefault(); onRetry(); }}><strong>Hittade inte den här — din guide är klar inom en timme</strong><small>{error}</small><input aria-label="Product name" placeholder="Add product name if you know it" value={recoveryName} onChange={(event) => onRecoveryNameChange(event.target.value)} /><PaymentButton paymentLink={paymentLink} scanId={scanId} price={price} /><button type="submit">Försök igen</button><button type="button" onClick={onRetake}>Ta en ny bild</button></form>}
-      {match && !error && <span className="thinking-match">{match.name}{match.itemNumber ? ` · art.nr ${match.itemNumber}` : ""}</span>}
+      {match && !error && <article className="pitch-product-match"><span>Produkt hittad</span><strong>{match.name}</strong>{match.variant && <small>{match.variant}</small>}{match.itemNumber && <small>Art.nr {match.itemNumber}</small>}</article>}
       </div>
+    </section>
+  );
+}
+
+function PitchVideoView() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = 0;
+    void video.play().catch(() => undefined);
+  }, []);
+
+  return (
+    <section className="pitch-video-view" aria-label="TRANERED step-by-step video">
+      <video ref={videoRef} src={PITCH_VIDEO_URL} autoPlay controls playsInline preload="auto" />
     </section>
   );
 }
@@ -509,6 +538,7 @@ export default function App() {
 
   useEffect(() => () => { if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current); clearScanTimers(); closeEventsRef.current?.(); }, [clearScanTimers]);
   useEffect(() => {
+    if (PITCH_MODE) return;
     if (sharedGuideLoadedRef.current) return;
     sharedGuideLoadedRef.current = true;
     const guideId = new URLSearchParams(window.location.search).get("guide");
@@ -582,6 +612,24 @@ export default function App() {
     currentScanIdRef.current = null;
     setScanId(null);
     setView("processing"); setTrace([{ id: "upload", label: "Skickar bilden…", status: "active" }]); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(true);
+    if (PITCH_MODE) {
+      retakeTimerRef.current = window.setTimeout(() => {
+        setMatch(PITCH_MATCH);
+        setElapsedMs(Math.max(0, performance.now() - scanStartedAtRef.current));
+        setRetakeAllowed(false);
+        setTrace([
+          { id: "upload", label: "Bilden är mottagen", status: "done" },
+          { id: "identified", label: "TRANERED", detail: "Art.nr 106.090.02", status: "done" },
+        ]);
+        retakeTimerRef.current = null;
+      }, 550);
+      scanTimeoutRef.current = window.setTimeout(() => {
+        clearScanTimers();
+        setCameraOpen(false);
+        setView("pitch");
+      }, 2_000);
+      return;
+    }
     retakeTimerRef.current = window.setTimeout(() => { setRetakeAllowed(false); retakeTimerRef.current = null; }, 1000);
     armScanTimeout();
     try { const { scanId: nextScanId } = await startScan({ photo: captured.file, note: note?.trim() || undefined }); currentScanIdRef.current = nextScanId; setScanId(nextScanId); closeEventsRef.current = openScanEvents(nextScanId, handleEvent); }
@@ -605,6 +653,7 @@ export default function App() {
     <main className={`mobile-app ${cameraOpen ? "is-camera-open" : ""} view-${view}`}>
       {view === "home" && <><header className="app-header"><button className="header-action header-action--history" type="button" aria-label="Recent work"><History size={27} strokeWidth={2.2} /></button><h1>New workspace</h1><button className="header-action header-action--new" type="button" aria-label="Start new workspace" onClick={reset}><MessageCirclePlus size={28} strokeWidth={2.15} /></button></header><section className="home-content" inert={cameraOpen} aria-hidden={cameraOpen ? "true" : undefined}><div className="suggestion-stack"><div className="suggestion-list">{orderedSuggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => { setDraft(suggestion); if (!photo) openCamera(); else window.setTimeout(() => inputRef.current?.focus(), 0); }}>{suggestion}</button>)}</div><button className="refresh-suggestions" type="button" aria-label="Refresh suggestions" onClick={() => setSuggestionOffset((offset) => (offset + 1) % SUGGESTIONS.length)}><RefreshCw size={21} strokeWidth={2.2} /></button></div><div className="prompt-anchor"><PromptBar draft={draft} photo={photo} busy={false} onDraftChange={setDraft} onPhotoClick={openCamera} onRemovePhoto={removePhoto} onSubmit={beginScan} inputRef={inputRef} /></div><BottomTabs /></section></>}
       {view === "guide" && guide && <GuideView guide={guide} onReset={reset} paymentLink={publicConfig.stripePaymentLinkUrl} price={publicConfig.guidePriceSek} scanId={scanId} />}
+      {view === "pitch" && <PitchVideoView />}
       {view === "error" && <section className="flow-view error-view"><span className="error-icon"><AlertTriangle size={28} /></span><span className="eyebrow">The scan stopped</span><h2>We couldn't finish this guide</h2><p>{error}</p><button type="button" className="primary-action" onClick={beginScan}><RotateCcw size={18} /> Try again</button><button type="button" className="secondary-action" onClick={retake}><Camera size={18} /> Take a clearer photo</button></section>}
       <CameraCard key={cameraSession} open={cameraOpen} closing={cameraClosing} onClose={closeCamera} onCapture={addPhoto} canRetake={retakeAllowed} onRetake={retake} overlay={view === "processing" ? <ThinkingState trace={trace} match={match} renderProgress={renderProgress} elapsedMs={elapsedMs} error={error} recoveryName={draft} onRecoveryNameChange={setDraft} onRetry={beginScan} onRetake={retake} paymentLink={publicConfig.stripePaymentLinkUrl} price={publicConfig.guidePriceSek} scanId={scanId} /> : undefined} />
     </main>
