@@ -40,6 +40,18 @@ export const config = {
   elevenLabsApiKey: str("ELEVENLABS_API_KEY"),
   // "Adam Composer Stockholm" — Stockholm-accented voice already in this account.
   elevenLabsVoiceId: str("ELEVENLABS_VOICE_ID", "x0u3EW21dbrORJzOq1m9"),
+  // ElevenLabs' aggregated video-generation endpoint (POST /v1/flows/video).
+  // Live model_ids as of the current OpenAPI spec: veo-3.1-generate-001,
+  // veo-3.1-fast-generate-001, bytedance-seedance-v2(-fast|-mini|-2.5),
+  // creatify-aurora. No sora model_id is exposed by this endpoint yet.
+  // Requires an ElevenLabs plan with Flows access — falls back to the real
+  // manual-page image per step on any failure (quota, plan, moderation).
+  // Default is the cheap tier: Seedance Mini bills ~8 credits/second at
+  // 480p vs Veo's ~8,000 credits per flat generation — roughly 100x
+  // cheaper for a 14-step guide.
+  animatedVideoModel: str("ANIMATED_VIDEO_MODEL", "bytedance-seedance-v2-mini"),
+  animatedVideoResolution: str("ANIMATED_VIDEO_RESOLUTION", "480p"),
+  animatedVideoDurationSecs: num("ANIMATED_VIDEO_DURATION_SECS", 4),
 
   firecrawlApiKey: str("FIRECRAWL_API_KEY"),
   stripeWebhookSecret: str("STRIPE_WEBHOOK_SECRET"),
