@@ -42,7 +42,7 @@ function cacheKeyFor(prompt: string, durationSecs: number): string {
  * Throws on any failure — callers fall back to the real manual-page image
  * rather than surface a broken step.
  */
-export async function generateStepClip(stepPrompt: string, durationSecs: 4 | 6 | 8 = 6): Promise<string> {
+export async function generateStepClip(stepPrompt: string, durationSecs = config.animatedVideoDurationSecs): Promise<string> {
   if (!config.elevenLabsApiKey) throw new Error("ELEVENLABS_API_KEY is not configured");
   const prompt = `${VISUAL_STYLE_PREFIX} ${stepPrompt}`.trim();
   const cacheKey = cacheKeyFor(prompt, durationSecs);
@@ -56,7 +56,7 @@ export async function generateStepClip(stepPrompt: string, durationSecs: 4 | 6 |
       prompt,
       duration_secs: durationSecs,
       aspect_ratio: "16:9",
-      resolution: "1080p",
+      resolution: config.animatedVideoResolution,
       generate_audio: false,
     }),
     signal: AbortSignal.timeout(30000),

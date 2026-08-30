@@ -46,7 +46,12 @@ export const config = {
   // creatify-aurora. No sora model_id is exposed by this endpoint yet.
   // Requires an ElevenLabs plan with Flows access — falls back to the real
   // manual-page image per step on any failure (quota, plan, moderation).
-  animatedVideoModel: str("ANIMATED_VIDEO_MODEL", "veo-3.1-fast-generate-001"),
+  // Default is the cheap tier: Seedance Mini bills ~8 credits/second at
+  // 480p vs Veo's ~8,000 credits per flat generation — roughly 100x
+  // cheaper for a 14-step guide.
+  animatedVideoModel: str("ANIMATED_VIDEO_MODEL", "bytedance-seedance-v2-mini"),
+  animatedVideoResolution: str("ANIMATED_VIDEO_RESOLUTION", "480p"),
+  animatedVideoDurationSecs: num("ANIMATED_VIDEO_DURATION_SECS", 4),
 
   firecrawlApiKey: str("FIRECRAWL_API_KEY"),
   stripeWebhookSecret: str("STRIPE_WEBHOOK_SECRET"),

@@ -273,9 +273,10 @@ export async function renderVideo(
 
     let videoPath: string | null = null;
     if (step.visual_prompt) {
-      const target = [4, 6, 8].reduce((best, d) => (Math.abs(d - (audio?.seconds ?? 6)) < Math.abs(best - (audio?.seconds ?? 6)) ? d : best));
       try {
-        videoPath = await generateStepClip(step.visual_prompt, target as 4 | 6 | 8);
+        // Fixed short clip length by design (cheap default) — the scene gets
+        // looped/trimmed to the real narration length in buildScene either way.
+        videoPath = await generateStepClip(step.visual_prompt);
       } catch (err) {
         // Animated generation is best-effort (plan tier, quota, moderation,
         // outages) — fall back to the real manual-page image for this step
