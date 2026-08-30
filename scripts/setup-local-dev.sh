@@ -173,10 +173,17 @@ cat <<'EOF'
 
 Next steps:
   1. Open .env and fill in ANTHROPIC_API_KEY and ELEVENLABS_API_KEY.
-  2. Start the API (seeds the catalog automatically on first boot):
-       npx tsx scripts/start-api-with-catalog-sync.ts
-  3. In a second terminal, start the web app:
+  2. Seed the catalog (does not happen automatically at API boot, by design —
+     that's a one-off job, not startup work):
+       npx tsx scripts/seed-ikea-cloud-metadata.ts
+       npx tsx scripts/seed-hero-product.ts
+       npx tsx scripts/seed-hero-guide.ts
+     (Optional, slower — downloads and verifies all 71 real manual PDFs:
+       npx tsx scripts/import-ikea-cloud-seed.ts)
+  3. Start the API:
+       npx tsx server/src/index.ts
+  4. In a second terminal, start the web app:
        npm run dev
-  4. Open http://localhost:5173
+  5. Open http://localhost:5173
 
 EOF
