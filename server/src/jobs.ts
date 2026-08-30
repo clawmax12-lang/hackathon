@@ -63,33 +63,36 @@ async function runJob(job: JobRow): Promise<void> {
   );
 }
 
-let running = false;
+// Each worker keeps claiming jobs until the queue is empty, then exits and
+// frees its slot. A worker that races ahead and finds nothing pending must
+// not block new work from starting on other slots — so slots are topped up
+// independently every tick, not gated on the whole batch finishing.
+let activeWorkers = 0;
 
 export function startJobRunner(): void {
-  const tick = async () => {
-    if (running) return;
-    running = true;
+  const worker = async () => {
+    activeWorkers += 1;
     try {
-      const worker = async () => {
-        let job = await claimNext();
-        while (job) {
-          try {
-            await runJob(job);
-          } catch (err) {
-            console.error(`[jobs] job ${job.id} crashed:`, err);
-            await query(`UPDATE ingestion_jobs SET status = 'failed', completed_at = now(), updated_at = now(), error_message = $2 WHERE id = $1`, [
-              job.id,
-              String((err as Error).message).slice(0, 500),
-            ]).catch(() => {});
-          }
-          job = await claimNext();
+      let job = await claimNext();
+      while (job) {
+        try {
+          await runJob(job);
+        } catch (err) {
+          console.error(`[jobs] job ${job.id} crashed:`, err);
+          await query(`UPDATE ingestion_jobs SET status = 'failed', completed_at = now(), updated_at = now(), error_message = $2 WHERE id = $1`, [
+            job.id,
+            String((err as Error).message).slice(0, 500),
+          ]).catch(() => {});
         }
-      };
-      await Promise.all(Array.from({ length: config.jobConcurrency }, () => worker()));
+        job = await claimNext();
+      }
     } finally {
-      running = false;
+      activeWorkers -= 1;
     }
   };
+  const tick = () => {
+    while (activeWorkers < config.jobConcurrency) void worker();
+  };
   setInterval(tick, 2000);
-  void tick();
+  tick();
 }
