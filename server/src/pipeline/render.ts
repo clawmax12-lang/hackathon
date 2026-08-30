@@ -16,13 +16,34 @@ const exec = promisify(execFile);
 
 function installedFont(name: "Bold" | "Regular"): string {
   const candidates = [
+    // Debian/Ubuntu (fonts-liberation / fonts-liberation2)
     `/usr/share/fonts/truetype/liberation2/LiberationSans-${name}.ttf`,
     `/usr/share/fonts/liberation-sans/LiberationSans-${name}.ttf`,
     `/usr/share/fonts/truetype/liberation/LiberationSans-${name}.ttf`,
+    // Fedora/RHEL
+    `/usr/share/fonts/liberation/LiberationSans-${name}.ttf`,
+    // macOS Homebrew (brew install --cask font-liberation)
+    `/opt/homebrew/Caskroom/font-liberation/*/LiberationSans-${name}.ttf`,
+    `${process.env.HOME ?? ""}/Library/Fonts/LiberationSans-${name}.ttf`,
+    `/Library/Fonts/LiberationSans-${name}.ttf`,
   ];
-  const found = candidates.find((candidate) => fsSync.existsSync(candidate));
-  if (!found) throw new Error(`Liberation Sans ${name} is not installed`);
-  return found;
+  for (const candidate of candidates) {
+    if (candidate.includes("*")) {
+      const [dir, rest] = candidate.split("*");
+      try {
+        const match = fsSync.readdirSync(dir).find((entry) => fsSync.existsSync(path.join(dir, entry, rest.replace(/^\//, ""))));
+        if (match) return path.join(dir, match, rest.replace(/^\//, ""));
+      } catch {
+        /* dir doesn't exist on this platform — try the next candidate */
+      }
+      continue;
+    }
+    if (fsSync.existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Liberation Sans ${name} is not installed. Install it: apt-get install fonts-liberation (Debian/Ubuntu), ` +
+      `dnf install liberation-sans-fonts (Fedora/RHEL), or brew install --cask font-liberation (macOS).`,
+  );
 }
 
 const FONT = installedFont("Bold");
