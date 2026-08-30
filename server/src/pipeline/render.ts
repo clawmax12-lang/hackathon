@@ -106,13 +106,17 @@ async function buildScene(scene: SceneSpec, workDir: string, index: number): Pro
     vin = "[zoomed]";
   }
 
-  // headline
+  // headline. The no-image (intro/outro) title wraps up to 2 lines at a large
+  // font — centering title and caption independently around the frame's
+  // vertical middle let a 2-line title's box grow into the caption's fixed
+  // offset. Anchor both from a fixed top position instead, with a gap sized
+  // for the worst-case (2-line) title height, so they never collide.
   filters.push(
-    `${vin}drawtext=fontfile=${FONT}:textfile='${titleFile}':fontsize=${scene.imagePath ? 56 : 84}:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.92:boxborderw=20:x=72:y=${scene.imagePath ? 64 : "(h-text_h)/2-120"}:line_spacing=14[v1]`,
+    `${vin}drawtext=fontfile=${FONT}:textfile='${titleFile}':fontsize=${scene.imagePath ? 56 : 84}:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.92:boxborderw=20:x=72:y=${scene.imagePath ? 64 : 220}:line_spacing=14[v1]`,
   );
   // caption
   filters.push(
-    `[v1]drawtext=fontfile=${FONT_REGULAR}:textfile='${capFile}':fontsize=40:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.88:boxborderw=18:x=72:y=${scene.imagePath ? "h-text_h-84" : "(h-text_h)/2+40"}:line_spacing=12[v2]`,
+    `[v1]drawtext=fontfile=${FONT_REGULAR}:textfile='${capFile}':fontsize=40:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.88:boxborderw=18:x=72:y=${scene.imagePath ? "h-text_h-84" : 470}:line_spacing=12[v2]`,
   );
   let last = "[v2]";
   if (scene.safetyText) {

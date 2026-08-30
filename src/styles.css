@@ -938,6 +938,9 @@ input:focus-visible {
 .guide-topbar button:last-child { justify-self: end; }
 .guide-topbar button.is-listening { color: #090909; background: #caff00; border-color: #caff00; }
 
+.guide-full-video { width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #171717; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 25px; margin-bottom: 12px; }
+.guide-full-video video { width: 100%; height: 100%; object-fit: contain; }
+
 .guide-video-shell { position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #171717; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 25px; }
 .guide-video-shell video, .guide-step-image, .video-missing { width: 100%; height: 100%; object-fit: contain; }
 .guide-step-image { display: block; background: #f7f4ee; }

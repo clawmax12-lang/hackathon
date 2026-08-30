@@ -441,6 +441,13 @@ function GuideView({ guide, onReset, paymentLink, price, scanId }: { guide: Guid
   return (
     <section className="flow-view guide-view">
       <div className="guide-topbar"><button type="button" aria-label="Ny skanning" onClick={onReset}><ArrowLeft size={21} /></button><span>Monteringsguide</span><button type="button" aria-label={voiceEnabled ? "Stäng av röststyrning" : "Slå på röststyrning"} className={voiceEnabled ? "is-listening" : ""} onClick={() => setVoiceEnabled((value) => !value)}>{voiceEnabled ? <Mic size={20} /> : <MicOff size={20} />}</button></div>
+      {guide.videoUrl && (
+        <div className="guide-full-video">
+          <video controls playsInline poster={guide.thumbnailUrl ?? undefined} src={guide.videoUrl}>
+            Din webbläsare kan inte spela upp video.
+          </video>
+        </div>
+      )}
       <div className="guide-video-shell">
         {step?.imageUrl ? <img className={`guide-step-image focus-${step.focusRegion}`} src={step.imageUrl} alt={`Manual page for step ${step.stepNumber}: ${step.title}`} /> : guide.thumbnailUrl ? <img className="guide-step-image" src={guide.thumbnailUrl} alt="Assembly guide" /> : <div className="video-missing">Manualbild saknas</div>}
         <audio ref={audioRef} src={step?.audioUrl ?? undefined} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
