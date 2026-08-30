@@ -38,7 +38,6 @@ import {
   askQuestion,
   getGuide,
   getPublicConfig,
-  getScan,
   logMiss,
   openScanEvents,
   startScan,
@@ -500,6 +499,7 @@ export default function App() {
     retakeTimerRef.current = null;
     scanTimeoutRef.current = null;
   }, []);
+
   useEffect(() => () => { if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current); clearScanTimers(); closeEventsRef.current?.(); }, [clearScanTimers]);
   useEffect(() => {
     if (sharedGuideLoadedRef.current) return;
@@ -518,6 +518,17 @@ export default function App() {
     void logMiss(currentScanIdRef.current, missQueryRef.current).catch(() => undefined);
   }, []);
 
+  // 15s of silence (no stage/product_match progress) means honestly stalled;
+  // real backend progress re-arms the window instead of a single fixed
+  // deadline from scan start, which fired well before a real (non-cached)
+  // scan — routinely 1.5-3 minutes end to end — could ever finish.
+  const armScanTimeout = useCallback(() => {
+    if (scanTimeoutRef.current) window.clearTimeout(scanTimeoutRef.current);
+    scanTimeoutRef.current = window.setTimeout(() => {
+      closeEventsRef.current?.(); closeEventsRef.current = null; setRetakeAllowed(false); setTrace((current) => current.map((step) => ({ ...step, status: "done" }))); recordMiss(); setError("Bearbetningen tog längre än 15 sekunder."); setView("processing");
+    }, 15_000);
+  }, [recordMiss]);
+
   const reset = useCallback(() => {
     closeEventsRef.current?.(); closeEventsRef.current = null; clearScanTimers(); releasePhoto(photo); setPhoto(null); setDraft(""); setTrace(freshTrace()); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(false); setScanId(null); currentScanIdRef.current = null; setView("home"); setCameraSession((value) => value + 1); window.history.replaceState({}, "", window.location.pathname); openCamera();
   }, [clearScanTimers, openCamera, photo, releasePhoto]);
@@ -527,6 +538,7 @@ export default function App() {
     setRetakeAllowed(false);
     if (retakeTimerRef.current) window.clearTimeout(retakeTimerRef.current);
     retakeTimerRef.current = null;
+    armScanTimeout();
     if (event.type === "stage") {
       const labels = ["Läser bilden…", "Söker i katalogen…", "Söker efter manualen…", "Bygger din guide…", "Skapar rösten…"] as const;
       const id = `stage-${event.index}`;
@@ -552,7 +564,7 @@ export default function App() {
       void getGuide(event.guideId).then((result) => { setGuide(result); setCameraOpen(false); setView("guide"); }).catch(() => { setError("Guiden skapades men kunde inte öppnas. Försök igen."); setView("error"); setCameraOpen(false); });
     }
     else if (event.type === "error") { clearScanTimers(); setTrace((current) => current.map((step) => ({ ...step, status: "done" }))); recordMiss(); setError(event.message); setView("processing"); }
-  }, [clearScanTimers, recordMiss]);
+  }, [armScanTimeout, clearScanTimers, recordMiss]);
 
   const runScan = useCallback(async (captured: CapturedPhoto, note?: string) => {
     closeEventsRef.current?.();
@@ -564,27 +576,10 @@ export default function App() {
     setScanId(null);
     setView("processing"); setTrace([{ id: "upload", label: "Skickar bilden…", status: "active" }]); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(true);
     retakeTimerRef.current = window.setTimeout(() => { setRetakeAllowed(false); retakeTimerRef.current = null; }, 1000);
-    scanTimeoutRef.current = window.setTimeout(async () => {
-      const activeScanId = currentScanIdRef.current;
-      if (activeScanId) {
-        try {
-          const state = await getScan(activeScanId);
-          if (state.extractedItemNumber || state.match) {
-            scanTimeoutRef.current = null;
-            setTrace((current) => current.map((step) => step.status === "active"
-              ? { ...step, detail: state.extractedItemNumber ? `Läste art.nr ${state.extractedItemNumber} · matchar katalogen…` : step.detail }
-              : step));
-            return;
-          }
-        } catch {
-          // Fall through to the existing recovery offer if status cannot be confirmed.
-        }
-      }
-      closeEventsRef.current?.(); closeEventsRef.current = null; setRetakeAllowed(false); setTrace((current) => current.map((step) => ({ ...step, status: "done" }))); recordMiss(); setError("Bearbetningen tog längre än 15 sekunder."); setView("processing");
-    }, 15_000);
+    armScanTimeout();
     try { const { scanId: nextScanId } = await startScan({ photo: captured.file, note: note?.trim() || undefined }); currentScanIdRef.current = nextScanId; setScanId(nextScanId); closeEventsRef.current = openScanEvents(nextScanId, handleEvent); }
     catch { clearScanTimers(); setRetakeAllowed(false); setError("Bilden kunde inte skickas. Kontrollera anslutningen och försök igen."); setView("processing"); }
-  }, [clearScanTimers, handleEvent, recordMiss]);
+  }, [armScanTimeout, clearScanTimers, handleEvent]);
 
   const beginScan = useCallback(() => {
     if (!photo) { openCamera(); return; }
