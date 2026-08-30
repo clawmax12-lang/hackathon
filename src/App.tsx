@@ -355,7 +355,7 @@ function ThinkingState({ trace, match, renderProgress, elapsedMs, error, recover
   );
 }
 
-function PitchVideoView() {
+function PitchGuideView({ onReset }: { onReset: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -366,8 +366,22 @@ function PitchVideoView() {
   }, []);
 
   return (
-    <section className="pitch-video-view" aria-label="TRANERED step-by-step video">
-      <video ref={videoRef} src={PITCH_VIDEO_URL} autoPlay controls playsInline preload="auto" />
+    <section className="flow-view guide-view pitch-guide-view" aria-label="TRANERED monteringsguide">
+      <div className="guide-topbar">
+        <button type="button" aria-label="Ny skanning" onClick={onReset}><ArrowLeft size={21} /></button>
+        <span>Monteringsguide</span>
+        <span aria-hidden="true" />
+      </div>
+      <div className="guide-full-video">
+        <video ref={videoRef} src={PITCH_VIDEO_URL} autoPlay controls playsInline preload="auto">
+          Din webbläsare kan inte spela upp video.
+        </video>
+      </div>
+      <div className="guide-title">
+        <span className="eyebrow">TRANERED · 106.090.02</span>
+        <h2>Montera TRANERED</h2>
+        <p>En lugn steg-för-steg-guide med engelsk voiceover.</p>
+      </div>
     </section>
   );
 }
@@ -513,6 +527,7 @@ export default function App() {
   const closeEventsRef = useRef<(() => void) | null>(null);
   const retakeTimerRef = useRef<number | null>(null);
   const scanTimeoutRef = useRef<number | null>(null);
+  const pitchTimersRef = useRef<number[]>([]);
   const scanStartedAtRef = useRef(0);
   const currentScanIdRef = useRef<string | null>(null);
   const missQueryRef = useRef("Foto utan angivet produktnamn");
@@ -532,8 +547,10 @@ export default function App() {
   const clearScanTimers = useCallback(() => {
     if (retakeTimerRef.current) window.clearTimeout(retakeTimerRef.current);
     if (scanTimeoutRef.current) window.clearTimeout(scanTimeoutRef.current);
+    pitchTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     retakeTimerRef.current = null;
     scanTimeoutRef.current = null;
+    pitchTimersRef.current = [];
   }, []);
 
   useEffect(() => () => { if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current); clearScanTimers(); closeEventsRef.current?.(); }, [clearScanTimers]);
@@ -611,23 +628,60 @@ export default function App() {
     missQueryRef.current = note?.trim() || "Foto utan angivet produktnamn";
     currentScanIdRef.current = null;
     setScanId(null);
-    setView("processing"); setTrace([{ id: "upload", label: "Skickar bilden…", status: "active" }]); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(true);
+    setView("processing"); setTrace([{ id: "image", label: "Läser bilden…", detail: "Tolkar etikett och artikelnummer", status: "active" }]); setMatch(null); setRenderProgress(null); setGuide(null); setError(""); setElapsedMs(null); setRetakeAllowed(true);
     if (PITCH_MODE) {
-      retakeTimerRef.current = window.setTimeout(() => {
-        setMatch(PITCH_MATCH);
-        setElapsedMs(Math.max(0, performance.now() - scanStartedAtRef.current));
+      const schedule = (delay: number, action: () => void) => {
+        const timer = window.setTimeout(() => {
+          pitchTimersRef.current = pitchTimersRef.current.filter((candidate) => candidate !== timer);
+          action();
+        }, delay);
+        pitchTimersRef.current.push(timer);
+      };
+      schedule(1_100, () => {
         setRetakeAllowed(false);
         setTrace([
-          { id: "upload", label: "Bilden är mottagen", status: "done" },
-          { id: "identified", label: "TRANERED", detail: "Art.nr 106.090.02", status: "done" },
+          { id: "image", label: "Läser bilden…", detail: "Etikett och artikelnummer avlästa", status: "done" },
+          { id: "catalog", label: "Söker i katalogen…", detail: "Matchar mot verifierade IKEA-produkter", status: "active" },
         ]);
-        retakeTimerRef.current = null;
-      }, 550);
-      scanTimeoutRef.current = window.setTimeout(() => {
+      });
+      schedule(4_800, () => {
+        setMatch(PITCH_MATCH);
+        setElapsedMs(Math.max(0, performance.now() - scanStartedAtRef.current));
+        setTrace([
+          { id: "image", label: "Läser bilden…", detail: "Etikett och artikelnummer avlästa", status: "done" },
+          { id: "catalog", label: "Söker i katalogen…", detail: "TRANERED · art.nr 106.090.02", status: "done" },
+        ]);
+      });
+      schedule(6_300, () => {
+        setTrace([
+          { id: "image", label: "Läser bilden…", detail: "Etikett och artikelnummer avlästa", status: "done" },
+          { id: "catalog", label: "Söker i katalogen…", detail: "TRANERED · art.nr 106.090.02", status: "done" },
+          { id: "manual", label: "Hämtar monteringsguiden…", detail: "Officiell TRANERED-manual hittad", status: "active" },
+        ]);
+      });
+      schedule(7_900, () => {
+        setRenderProgress({ done: 0, total: 1, label: "Förbereder video och voiceover" });
+        setTrace([
+          { id: "image", label: "Läser bilden…", detail: "Etikett och artikelnummer avlästa", status: "done" },
+          { id: "catalog", label: "Söker i katalogen…", detail: "TRANERED · art.nr 106.090.02", status: "done" },
+          { id: "manual", label: "Hämtar monteringsguiden…", detail: "Officiell TRANERED-manual hittad", status: "done" },
+          { id: "guide", label: "Bygger din guide…", detail: "Laddar den färdiga steg-för-steg-videon", status: "active" },
+        ]);
+      });
+      schedule(9_500, () => {
+        setRenderProgress({ done: 1, total: 1, label: "Video och voiceover klara" });
+        setTrace([
+          { id: "image", label: "Läser bilden…", detail: "Etikett och artikelnummer avlästa", status: "done" },
+          { id: "catalog", label: "Söker i katalogen…", detail: "TRANERED · art.nr 106.090.02", status: "done" },
+          { id: "manual", label: "Hämtar monteringsguiden…", detail: "Officiell TRANERED-manual hittad", status: "done" },
+          { id: "guide", label: "Din guide är klar", detail: "Video med engelsk voiceover", status: "done" },
+        ]);
+      });
+      schedule(10_500, () => {
         clearScanTimers();
         setCameraOpen(false);
         setView("pitch");
-      }, 2_000);
+      });
       return;
     }
     retakeTimerRef.current = window.setTimeout(() => { setRetakeAllowed(false); retakeTimerRef.current = null; }, 1000);
@@ -653,7 +707,7 @@ export default function App() {
     <main className={`mobile-app ${cameraOpen ? "is-camera-open" : ""} view-${view}`}>
       {view === "home" && <><header className="app-header"><button className="header-action header-action--history" type="button" aria-label="Recent work"><History size={27} strokeWidth={2.2} /></button><h1>New workspace</h1><button className="header-action header-action--new" type="button" aria-label="Start new workspace" onClick={reset}><MessageCirclePlus size={28} strokeWidth={2.15} /></button></header><section className="home-content" inert={cameraOpen} aria-hidden={cameraOpen ? "true" : undefined}><div className="suggestion-stack"><div className="suggestion-list">{orderedSuggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => { setDraft(suggestion); if (!photo) openCamera(); else window.setTimeout(() => inputRef.current?.focus(), 0); }}>{suggestion}</button>)}</div><button className="refresh-suggestions" type="button" aria-label="Refresh suggestions" onClick={() => setSuggestionOffset((offset) => (offset + 1) % SUGGESTIONS.length)}><RefreshCw size={21} strokeWidth={2.2} /></button></div><div className="prompt-anchor"><PromptBar draft={draft} photo={photo} busy={false} onDraftChange={setDraft} onPhotoClick={openCamera} onRemovePhoto={removePhoto} onSubmit={beginScan} inputRef={inputRef} /></div><BottomTabs /></section></>}
       {view === "guide" && guide && <GuideView guide={guide} onReset={reset} paymentLink={publicConfig.stripePaymentLinkUrl} price={publicConfig.guidePriceSek} scanId={scanId} />}
-      {view === "pitch" && <PitchVideoView />}
+      {view === "pitch" && <PitchGuideView onReset={reset} />}
       {view === "error" && <section className="flow-view error-view"><span className="error-icon"><AlertTriangle size={28} /></span><span className="eyebrow">The scan stopped</span><h2>We couldn't finish this guide</h2><p>{error}</p><button type="button" className="primary-action" onClick={beginScan}><RotateCcw size={18} /> Try again</button><button type="button" className="secondary-action" onClick={retake}><Camera size={18} /> Take a clearer photo</button></section>}
       <CameraCard key={cameraSession} open={cameraOpen} closing={cameraClosing} onClose={closeCamera} onCapture={addPhoto} canRetake={retakeAllowed} onRetake={retake} overlay={view === "processing" ? <ThinkingState trace={trace} match={match} renderProgress={renderProgress} elapsedMs={elapsedMs} error={error} recoveryName={draft} onRecoveryNameChange={setDraft} onRetry={beginScan} onRetake={retake} paymentLink={publicConfig.stripePaymentLinkUrl} price={publicConfig.guidePriceSek} scanId={scanId} /> : undefined} />
     </main>
