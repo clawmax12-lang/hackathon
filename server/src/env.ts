@@ -40,6 +40,13 @@ export const config = {
   elevenLabsApiKey: str("ELEVENLABS_API_KEY"),
   // "Adam Composer Stockholm" — Stockholm-accented voice already in this account.
   elevenLabsVoiceId: str("ELEVENLABS_VOICE_ID", "x0u3EW21dbrORJzOq1m9"),
+  // ElevenLabs' aggregated video-generation endpoint (POST /v1/flows/video).
+  // Live model_ids as of the current OpenAPI spec: veo-3.1-generate-001,
+  // veo-3.1-fast-generate-001, bytedance-seedance-v2(-fast|-mini|-2.5),
+  // creatify-aurora. No sora model_id is exposed by this endpoint yet.
+  // Requires an ElevenLabs plan with Flows access — falls back to the real
+  // manual-page image per step on any failure (quota, plan, moderation).
+  animatedVideoModel: str("ANIMATED_VIDEO_MODEL", "veo-3.1-fast-generate-001"),
 
   firecrawlApiKey: str("FIRECRAWL_API_KEY"),
   stripeWebhookSecret: str("STRIPE_WEBHOOK_SECRET"),

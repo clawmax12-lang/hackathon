@@ -2,15 +2,17 @@ export const PROMPT_VERSION = "monterra-style-v2";
 
 /**
  * Fixed style block prepended in code (not restated by the LLM per step) to
- * whatever image-generation prompt eventually renders visual_prompt into a
- * keyframe. Keeping it centralized avoids per-step drift — the model only
- * has to describe what's specific to that step; the "world" stays constant.
+ * each step's visual_prompt before it becomes a video-generation prompt.
+ * Keeping it centralized avoids per-step drift — the model only has to
+ * describe what's specific to that step; the character, setting, and camera
+ * stay constant across every clip in a guide.
  */
 export const VISUAL_STYLE_PREFIX =
-  "Flat ink-line technical illustration, single consistent linework style, cream/paper background (#f3eee1), " +
-  "dark ink outlines (#1c1712), one pine-green accent color (#2e4a3c) used sparingly for emphasis. " +
-  "Show only hands and the furniture parts/tools being manipulated — no face, no visible head, no body above the forearms. " +
-  "Composition matches an IKEA assembly-manual diagram: clean, uncluttered, orthographic or slight isometric angle, generous negative space.";
+  "Short, calm clip of the same person assembling flat-pack furniture at a well-lit table, filmed straight-on " +
+  "at a static three-quarter angle. Consistent character across every clip in this guide: a calm adult in " +
+  "simple neutral clothing, face visible, unhurried and focused expression. Consistent room and table in every " +
+  "clip — soft daylight, plain warm-cream background matching a printed instruction manual. Smooth, physically " +
+  "plausible motion, no jump cuts, no camera movement, no on-screen text or logos.";
 
 /**
  * What makes an assembly video pedagogically good, distilled from the
@@ -49,11 +51,11 @@ KÄLLTROHET:
 - Om manualsidan är tvetydig: sätt needs_review=true. Steget visas då med bild och text utan berättarröst.
 - Sista stegets narration_script avslutas exakt med "Klart. Snyggt jobbat."
 
-VISUAL_PROMPT (engelska, inte svenska — det här är en bildgenereringsprompt, inte användartext):
-- En fast stilbeskrivning läggs till i kod (samma för alla steg i alla guider) — skriv INTE om stilen här.
-- Beskriv bara det som är specifikt för just detta steg, 1-2 meningar: vilka delar/verktyg som syns, vad händerna gör med dem, ungefärlig komposition (t.ex. "hands pressing a wooden dowel into a panel hole, close-up, screwdriver resting to the side").
-- Inga ansikten, ingen kropp ovanför underarmarna, inga personnamn, ingen text i bilden.
-- Håll det kortfattat — det är en scenbeskrivning, inte en berättelse.
+VISUAL_PROMPT (engelska, inte svenska — det här är en videogenereringsprompt, inte användartext):
+- En fast karaktärs- och miljöbeskrivning läggs till i kod (samma för alla steg i alla guider) — skriv INTE om den här.
+- Beskriv bara handlingen i just detta steg, som rörelse snarare än en stillbild, 1-2 meningar: vad personen plockar upp, hur delarna hålls och riktas, rörelsen som monterar dem, var de hamnar. Exempel: "picks up both side panels, aligns the pre-drilled holes, and presses the dowels in with steady pressure until they sit flush."
+- Namnge exakt de delar/verktyg som anges i stegets parts/tools — hitta aldrig på en del, ett antal eller en rörelse som inte visas i manualen.
+- En sammanhängande handling per steg, inget persongalleri, ingen text eller logga i bilden.
 
 Allt användarvänt innehåll (titlar, instruktioner, varningar, berättarmanus) skrivs på svenska. Delar och verktyg namnges på svenska. visual_prompt är internt och skrivs på engelska.`;
 

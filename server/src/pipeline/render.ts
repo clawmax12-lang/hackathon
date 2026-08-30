@@ -10,6 +10,7 @@ import { pathFor } from "../storage.js";
 import { storeAsset } from "../storage.js";
 import { audioDurationSeconds } from "./narration.js";
 import { listPageFiles } from "./manual.js";
+import { generateStepClip } from "./animate.js";
 
 const exec = promisify(execFile);
 
@@ -62,6 +63,7 @@ async function imageSize(file: string): Promise<{ w: number; h: number }> {
 interface SceneSpec {
   name: string;
   imagePath: string | null; // null -> plain paper card
+  videoPath: string | null; // animated clip for this step; takes priority over imagePath
   audioPath: string | null;
   titleText: string; // headline overlay
   captionText: string; // smaller body text
@@ -83,7 +85,15 @@ async function buildScene(scene: SceneSpec, workDir: string, index: number): Pro
   const filters: string[] = [];
   let vin: string;
 
-  if (scene.imagePath) {
+  if (scene.videoPath) {
+    // Already-animated clip (real motion, no zoompan needed) — fit it onto
+    // the same 4K work canvas as the manual-page path so downstream filters
+    // and concat params stay identical either way.
+    filters.push(
+      `[0:v]scale=3840:2160:flags=lanczos:force_original_aspect_ratio=decrease,pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=${PAPER},fps=${FPS}[zoomed]`,
+    );
+    vin = "[zoomed]";
+  } else if (scene.imagePath) {
     const { w, h } = await imageSize(scene.imagePath);
     if (scene.focusRegion === "full") {
       filters.push(`[0:v]scale=-2:2160:flags=lanczos,pad=3840:2160:(ow-iw)/2:0:color=${PAPER}[base]`);
@@ -111,12 +121,13 @@ async function buildScene(scene: SceneSpec, workDir: string, index: number): Pro
   // vertical middle let a 2-line title's box grow into the caption's fixed
   // offset. Anchor both from a fixed top position instead, with a gap sized
   // for the worst-case (2-line) title height, so they never collide.
+  const hasVisual = Boolean(scene.videoPath || scene.imagePath);
   filters.push(
-    `${vin}drawtext=fontfile=${FONT}:textfile='${titleFile}':fontsize=${scene.imagePath ? 56 : 84}:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.92:boxborderw=20:x=72:y=${scene.imagePath ? 64 : 220}:line_spacing=14[v1]`,
+    `${vin}drawtext=fontfile=${FONT}:textfile='${titleFile}':fontsize=${hasVisual ? 56 : 84}:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.92:boxborderw=20:x=72:y=${hasVisual ? 64 : 220}:line_spacing=14[v1]`,
   );
   // caption
   filters.push(
-    `[v1]drawtext=fontfile=${FONT_REGULAR}:textfile='${capFile}':fontsize=40:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.88:boxborderw=18:x=72:y=${scene.imagePath ? "h-text_h-84" : 470}:line_spacing=12[v2]`,
+    `[v1]drawtext=fontfile=${FONT_REGULAR}:textfile='${capFile}':fontsize=40:fontcolor=${INK}:box=1:boxcolor=${PAPER}@0.88:boxborderw=18:x=72:y=${hasVisual ? "h-text_h-84" : 470}:line_spacing=12[v2]`,
   );
   let last = "[v2]";
   if (scene.safetyText) {
@@ -135,7 +146,11 @@ async function buildScene(scene: SceneSpec, workDir: string, index: number): Pro
 
   const args = [
     "-y",
-    ...(scene.imagePath ? ["-loop", "1", "-i", scene.imagePath] : ["-f", "lavfi", "-i", `color=c=${PAPER}:s=16x16:r=${FPS}`]),
+    ...(scene.videoPath
+      ? ["-stream_loop", "-1", "-i", scene.videoPath]
+      : scene.imagePath
+        ? ["-loop", "1", "-i", scene.imagePath]
+        : ["-f", "lavfi", "-i", `color=c=${PAPER}:s=16x16:r=${FPS}`]),
     ...audioInput,
     "-filter_complex",
     filters.join(";"),
@@ -190,8 +205,9 @@ export async function renderVideo(
     parts: string[] | null;
     tools: string[] | null;
     focus_region: string | null;
+    visual_prompt: string | null;
   }>(
-    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, manual_pages, parts, tools,
+    `SELECT step_number, title, instruction, safety_warning, estimated_seconds, manual_pages, parts, tools, visual_prompt,
             to_jsonb(assembly_steps)->>'focus_region' AS focus_region
        FROM assembly_steps WHERE guide_id = $1 ORDER BY step_number`,
     [guideId],
@@ -233,6 +249,7 @@ export async function renderVideo(
   scenes.push({
     name: "intro",
     imagePath: null,
+    videoPath: null,
     audioPath: introAudio?.path ?? null,
     titleText: wrap(guide.title, 34, 2),
     captionText:
@@ -253,9 +270,24 @@ export async function renderVideo(
       ? (step.focus_region as SceneSpec["focusRegion"])
       : "full";
     const audio = await audioFor(`audio/${guideId}/step-${String(step.step_number).padStart(2, "0")}.mp3`);
+
+    let videoPath: string | null = null;
+    if (step.visual_prompt) {
+      const target = [4, 6, 8].reduce((best, d) => (Math.abs(d - (audio?.seconds ?? 6)) < Math.abs(best - (audio?.seconds ?? 6)) ? d : best));
+      try {
+        videoPath = await generateStepClip(step.visual_prompt, target as 4 | 6 | 8);
+      } catch (err) {
+        // Animated generation is best-effort (plan tier, quota, moderation,
+        // outages) — fall back to the real manual-page image for this step
+        // rather than fail the whole guide.
+        console.error(`[render] animated clip failed for step ${step.step_number}, falling back to manual page:`, (err as Error).message);
+      }
+    }
+
     scenes.push({
       name: `step-${step.step_number}`,
       imagePath,
+      videoPath,
       audioPath: audio?.path ?? null,
       titleText: `Steg ${step.step_number} av ${steps.length} — ${wrap(step.title, 30, 1)}`,
       captionText: wrap(step.instruction, 58, 2),
@@ -269,6 +301,7 @@ export async function renderVideo(
   scenes.push({
     name: "outro",
     imagePath: null,
+    videoPath: null,
     audioPath: outroAudio?.path ?? null,
     titleText: "Klart!",
     captionText: wrap(`${product.name} är färdigmonterad. Kontrollera att alla skruvar är åtdragna.`, 52, 2),
