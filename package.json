@@ -12,7 +12,7 @@
     "start": "serve dist -l $PORT"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.122.0",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@elevenlabs/elevenlabs-js": "^2.65.0",
     "@fontsource-variable/manrope": "^5.2.8",
     "@hono/node-server": "^2.1.1",

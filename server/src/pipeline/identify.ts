@@ -57,6 +57,7 @@ export async function identifyProductFromImage(scanImageStorageKey: string, user
   const resp = await client.messages.create({
     model: config.visionModel,
     max_tokens: 1024,
+    ...(config.visionEffort ? { output_config: { effort: config.visionEffort } } : {}),
     tools: [REPORT_TOOL],
     tool_choice: { type: "tool", name: "report_identification" },
     messages: [

@@ -34,6 +34,22 @@ config "anthropic_vision_model" {
   default = "claude-haiku-4-5"
 }
 
+config "anthropic_orchestrator_prompt_version" {
+  default = "monterra-system-v2"
+}
+
+config "anthropic_effort_orchestrator" {
+  default = ""
+}
+
+config "anthropic_effort_vision" {
+  default = ""
+}
+
+config "anthropic_effort_qa" {
+  default = ""
+}
+
 config "ikea_market" {
   default = "se"
 }
@@ -105,6 +121,10 @@ service "api" {
     ANTHROPIC_WORKSPACE_ID         = secret.anthropic_workspace_id
     ANTHROPIC_ORCHESTRATOR_MODEL   = config.anthropic_orchestrator_model
     ANTHROPIC_VISION_MODEL         = config.anthropic_vision_model
+    ANTHROPIC_ORCHESTRATOR_PROMPT_VERSION = config.anthropic_orchestrator_prompt_version
+    ANTHROPIC_EFFORT_ORCHESTRATOR  = config.anthropic_effort_orchestrator
+    ANTHROPIC_EFFORT_VISION        = config.anthropic_effort_vision
+    ANTHROPIC_EFFORT_QA            = config.anthropic_effort_qa
     ELEVENLABS_API_KEY             = secret.elevenlabs_api_key
     FIRECRAWL_API_KEY              = secret.firecrawl_api_key
     GUIDE_PRICE_SEK                = config.guide_price_sek

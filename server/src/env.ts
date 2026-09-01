@@ -25,6 +25,17 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+function anthropicEffort(name: string): AnthropicEffort | undefined {
+  const value = str(name);
+  if (!value) return undefined;
+  if (["low", "medium", "high", "xhigh", "max"].includes(value)) {
+    return value as AnthropicEffort;
+  }
+  throw new Error(`${name} must be one of: low, medium, high, xhigh, max`);
+}
+
 const anthropicApiKey = str("ANTHROPIC_API_KEY");
 
 export const config = {
@@ -36,6 +47,10 @@ export const config = {
   anthropicWorkspaceId: str("ANTHROPIC_WORKSPACE_ID"),
   orchestratorModel: str("ANTHROPIC_ORCHESTRATOR_MODEL", "claude-opus-5"),
   visionModel: str("ANTHROPIC_VISION_MODEL", "claude-haiku-4-5"),
+  orchestratorPromptVersion: str("ANTHROPIC_ORCHESTRATOR_PROMPT_VERSION", "monterra-system-v2"),
+  orchestratorEffort: anthropicEffort("ANTHROPIC_EFFORT_ORCHESTRATOR"),
+  visionEffort: anthropicEffort("ANTHROPIC_EFFORT_VISION"),
+  qaEffort: anthropicEffort("ANTHROPIC_EFFORT_QA"),
 
   elevenLabsApiKey: str("ELEVENLABS_API_KEY"),
   // "Adam Composer Stockholm" — Stockholm-accented voice already in this account.

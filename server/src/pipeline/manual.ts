@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../env.js";
@@ -147,6 +148,61 @@ export async function listPageFiles(documentId: string, variant: "video" | "visi
     .filter((f) => f.endsWith(".png"))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map((f) => path.join(dir, f));
+}
+
+export interface NormalizedRegion {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export function validateNormalizedRegion(region: NormalizedRegion): void {
+  const { x0, y0, x1, y1 } = region;
+  if (![x0, y0, x1, y1].every(Number.isFinite)) {
+    throw new Error("region coordinates must be finite numbers");
+  }
+  if (x0 < 0 || y0 < 0 || x1 > 1 || y1 > 1 || x0 >= x1 || y0 >= y1) {
+    throw new Error("region must satisfy 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1");
+  }
+  if (x1 - x0 < 0.03 || y1 - y0 < 0.03) {
+    throw new Error("region must cover at least 3% of the page in each dimension");
+  }
+}
+
+/**
+ * Crop a normalized region from an already-rendered manual page and enlarge
+ * it for a second vision pass. The temporary file is deleted after reading.
+ */
+export async function inspectManualRegion(
+  documentId: string,
+  page: number,
+  region: NormalizedRegion,
+): Promise<Buffer> {
+  validateNormalizedRegion(region);
+  const pages = await listPageFiles(documentId, "video");
+  if (!Number.isInteger(page) || page < 1 || page > pages.length) {
+    throw new Error(`page must be an integer between 1 and ${pages.length}`);
+  }
+
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "monterra-manual-region-"));
+  const output = path.join(workDir, "region.png");
+  const width = region.x1 - region.x0;
+  const height = region.y1 - region.y0;
+  const filter =
+    `crop=iw*${width}:ih*${height}:iw*${region.x0}:ih*${region.y0},` +
+    "scale=2048:2048:force_original_aspect_ratio=decrease:flags=lanczos";
+
+  try {
+    await exec(
+      "ffmpeg",
+      ["-loglevel", "error", "-y", "-i", pages[page - 1], "-vf", filter, "-frames:v", "1", output],
+      { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    );
+    return await fs.readFile(output);
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true });
+  }
 }
 
 /**
