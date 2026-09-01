@@ -238,6 +238,13 @@ async function runSuite(): Promise<void> {
     throw new Error("--batch-id must be a version-4 UUID");
   }
   const batchId = requestedBatchId ?? randomUUID();
+  const matrixId = process.env.ORCHESTRATOR_EVAL_MATRIX_ID || null;
+  if (
+    matrixId &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(matrixId)
+  ) {
+    throw new Error("ORCHESTRATOR_EVAL_MATRIX_ID must be a version-4 UUID");
+  }
   const maxTotalAnthropicUsd = positiveUsd(args.values["max-total-anthropic-usd"]!);
   const effort = config.orchestratorEffort ?? "default";
   console.log(
@@ -502,7 +509,7 @@ async function runSuite(): Promise<void> {
     spentAnthropicUsd += result.estimatedCostUsd;
     await db.query(
       `INSERT INTO orchestrator_eval_runs
-         (batch_id, suite_version, fixture_hash, product_id, document_id,
+         (matrix_id, batch_id, suite_version, fixture_hash, product_id, document_id,
           document_checksum, scan_id, job_id, article_number, model, effort,
           prompt_version, status, expected_steps, actual_steps,
           expected_needs_review, actual_needs_review,
@@ -510,8 +517,9 @@ async function runSuite(): Promise<void> {
           input_tokens, output_tokens, estimated_cost_usd, duration_ms, result)
        VALUES
          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)`,
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26::jsonb)`,
       [
+        matrixId,
         batchId,
         fixtureFile.version,
         fixtureFile.hash,
@@ -720,7 +728,18 @@ async function compareBatches(): Promise<void> {
   }
   const before = summarize(baseline);
   const after = summarize(candidate);
+  const perFixtureFidelity = baseline.every((baselineRow, index) => {
+    const candidateRow = candidate[index];
+    return (
+      (baselineRow.status !== "success" || candidateRow.status === "success") &&
+      Math.abs(candidateRow.actualSteps - candidateRow.expectedSteps) <=
+        Math.abs(baselineRow.actualSteps - baselineRow.expectedSteps) &&
+      Math.abs(candidateRow.actualNeedsReview - candidateRow.expectedNeedsReview) <=
+        Math.abs(baselineRow.actualNeedsReview - baselineRow.expectedNeedsReview)
+    );
+  });
   const fidelityNotWorse =
+    perFixtureFidelity &&
     after.goldFixtures > 0 &&
     after.groundingAssertionsTotal > 0 &&
     after.successful >= before.successful &&
@@ -769,6 +788,7 @@ async function compareBatches(): Promise<void> {
       {
         baselineBatch: baselineId,
         candidateBatch: candidateId,
+        perFixtureFidelity,
         fidelityNotWorse,
         operationalNotWorse,
         operationalImprovement,

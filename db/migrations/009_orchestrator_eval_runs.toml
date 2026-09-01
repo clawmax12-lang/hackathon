@@ -4,8 +4,34 @@
 [[actions]]
 type = "custom"
 start = """
+CREATE TABLE orchestrator_eval_matrices (
+  id UUID PRIMARY KEY,
+  baseline_batch_id UUID NOT NULL,
+  candidate_batch_id UUID NOT NULL,
+  status TEXT NOT NULL,
+  fixture_limit INTEGER NOT NULL,
+  max_anthropic_usd_per_batch NUMERIC(12,6) NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  exit_code INTEGER,
+  error_message TEXT,
+  CONSTRAINT orchestrator_eval_matrices_status
+    CHECK (status IN ('running', 'succeeded', 'failed')),
+  CONSTRAINT orchestrator_eval_matrices_limits
+    CHECK (
+      fixture_limit BETWEEN 1 AND 20
+      AND max_anthropic_usd_per_batch > 0
+    )
+);
+
+CREATE UNIQUE INDEX orchestrator_eval_matrices_single_running_idx
+  ON orchestrator_eval_matrices ((true))
+  WHERE status = 'running';
+
 CREATE TABLE orchestrator_eval_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  matrix_id UUID REFERENCES orchestrator_eval_matrices(id),
   batch_id UUID NOT NULL,
   suite_version INTEGER NOT NULL,
   fixture_hash TEXT NOT NULL,
