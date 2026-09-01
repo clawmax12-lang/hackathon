@@ -362,7 +362,9 @@ a walkthrough recording for UI-affecting work.
 ## 7. Things deliberately not done
 
 - No microservices, queues, or Kubernetes until a measured constraint appears.
-- No generative video hero path (ElevenLabs does audio only; the animated clip path is best-effort and falls back to manual-page renders).
+- No animated-video-only dependency. ElevenLabs Flows provides best-effort
+  per-step animated clips; when quota, plan access, moderation, or generation
+  fails, the guide falls back to the verified manual-page renders.
 - No client-side paywall logic.
 - No prompt changes without the eval suite.
 - No merges or pushes from agent sessions without an explicit, in-message instruction.
