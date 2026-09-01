@@ -58,9 +58,10 @@ export const config = {
   stripePaymentLinkUrl: str("STRIPE_PAYMENT_LINK_URL"),
   guidePriceSek: num("GUIDE_PRICE_SEK", 49),
 
-  // Mock walks the same state machine with scripted reasoning; defaults to
-  // mock only when no Anthropic key is configured.
-  mockOrchestrator: str("MOCK_ORCHESTRATOR", anthropicApiKey ? "0" : "1") === "1",
+  // Mock mode is only for fixtures and local development. Production must
+  // fail explicitly when a provider is unavailable rather than fabricate a
+  // product match from the demo orchestrator.
+  mockOrchestrator: str("MOCK_ORCHESTRATOR", "0") === "1",
 
   maxTurns: num("PIPELINE_MAX_TURNS", 24),
   jobConcurrency: num("JOB_CONCURRENCY", 2),

@@ -1,8 +1,20 @@
-secret "anthropic_api_key" {}
+secret "anthropic_api_key" {
+  dev {
+    required = false
+  }
+}
 
-secret "anthropic_workspace_id" {}
+secret "anthropic_workspace_id" {
+  dev {
+    required = false
+  }
+}
 
-secret "elevenlabs_api_key" {}
+secret "elevenlabs_api_key" {
+  dev {
+    required = false
+  }
+}
 
 secret "firecrawl_api_key" {
   dev {

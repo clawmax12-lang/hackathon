@@ -1,3 +1,5 @@
+import { query } from "./db.js";
+
 export type StageKey =
   | "reading_label"
   | "identifying"
@@ -38,45 +40,33 @@ export type ScanEvent =
   | { type: "error"; stage: StageKey; message: string; recoverable: boolean }
   | { type: "done" };
 
-type StoredEvent = { id: number; event: ScanEvent };
-type Subscriber = (id: number, event: ScanEvent) => void;
-
-class ScanEventHub {
-  private logs = new Map<string, StoredEvent[]>();
-  private subs = new Map<string, Set<Subscriber>>();
-
-  emit(scanId: string, event: ScanEvent): void {
-    const log = this.logs.get(scanId) ?? [];
-    const id = log.length + 1;
-    log.push({ id, event });
-    this.logs.set(scanId, log);
-    for (const sub of this.subs.get(scanId) ?? []) {
-      try {
-        sub(id, event);
-      } catch {
-        /* subscriber gone */
-      }
-    }
-  }
-
-  /** Replays events after `afterId`, then streams live. Returns unsubscribe. */
-  subscribe(scanId: string, afterId: number, sub: Subscriber): () => void {
-    for (const stored of this.logs.get(scanId) ?? []) {
-      if (stored.id > afterId) sub(stored.id, stored.event);
-    }
-    let set = this.subs.get(scanId);
-    if (!set) {
-      set = new Set();
-      this.subs.set(scanId, set);
-    }
-    set.add(sub);
-    return () => set.delete(sub);
-  }
-
-  isFinished(scanId: string): boolean {
-    const log = this.logs.get(scanId) ?? [];
-    return log.some((s) => s.event.type === "done" || (s.event.type === "error" && !s.event.recoverable));
-  }
+export interface StoredScanEvent {
+  id: number;
+  event: ScanEvent;
 }
 
-export const hub = new ScanEventHub();
+export async function appendScanEvent(scanId: string, event: ScanEvent): Promise<number> {
+  const [stored] = await query<{ id: string }>(
+    `INSERT INTO scan_events (scan_id, event_type, payload)
+     VALUES ($1, $2, $3::jsonb)
+     RETURNING id`,
+    [scanId, event.type, JSON.stringify(event)],
+  );
+  if (!stored) throw new Error("scan event was not persisted");
+  return Number(stored.id);
+}
+
+export async function listScanEvents(scanId: string, afterId: number): Promise<StoredScanEvent[]> {
+  const rows = await query<{ id: string; payload: ScanEvent }>(
+    `SELECT id, payload
+       FROM scan_events
+      WHERE scan_id = $1 AND id > $2
+      ORDER BY id ASC`,
+    [scanId, afterId],
+  );
+  return rows.map((row) => ({ id: Number(row.id), event: row.payload }));
+}
+
+export function isTerminalScanEvent(event: ScanEvent): boolean {
+  return event.type === "done" || event.type === "error";
+}

@@ -66,7 +66,9 @@ type ProductMatch = Extract<ScanEvent, { type: "product_match" }>;
 type PublicConfig = { stripePaymentLinkUrl: string | null; guidePriceSek: number };
 
 const SUGGESTIONS = ["Scan package label", "Identify loose parts", "Create assembly guide"];
-const PITCH_MODE = true;
+// The production flow is real by default. The scripted pitch can only be
+// enabled deliberately in a local/demo environment.
+const PITCH_MODE = import.meta.env.VITE_PITCH_MODE === "true";
 const PITCH_VIDEO_URL = "/tranered-pitch.mp4";
 const PITCH_MATCH: ProductMatch = {
   type: "product_match",
@@ -337,7 +339,7 @@ function ThinkingState({ trace, match, renderProgress, elapsedMs, error, recover
   scanId: string | null;
 }) {
   return (
-    <section className="thinking-state" aria-live="polite">
+    <section className={`thinking-state ${error ? "thinking-state--recovery" : ""}`} aria-live="polite">
       <div className="thinking-state__content">
       {elapsedMs !== null && !error ? <div className="thinking-summary"><Check size={18} strokeWidth={3} /><strong>Hittade din möbel på {(elapsedMs / 1000).toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s</strong></div> : <span className="thinking-kicker">Fota. Lyssna. Bygg.</span>}
       <ol className="trace-list">
