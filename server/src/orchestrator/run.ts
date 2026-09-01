@@ -67,6 +67,9 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
       : initialIdentification
         ? "Vision identification is already complete below. Start with lookup_catalog; do not identify the image again."
         : "Identify the product from the photo first.",
+    ctx.requiredDocumentId
+      ? `This isolated evaluation is pinned to verified document_id ${ctx.requiredDocumentId}; use that exact manual.`
+      : "",
     "Drive the pipeline to a finished video, then call finish.",
     initialIdentification ? `IDENTIFICATION_RESULT:\n${initialIdentification}` : "",
   ];
