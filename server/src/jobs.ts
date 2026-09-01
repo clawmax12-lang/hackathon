@@ -2,7 +2,7 @@ import { config } from "./env.js";
 import { maybeOne, query } from "./db.js";
 import { runMockOrchestrator } from "./orchestrator/mock.js";
 import { runOrchestrator } from "./orchestrator/run.js";
-import type { ToolContext } from "./orchestrator/tools.js";
+import { finalizeRun, type ToolContext } from "./orchestrator/tools.js";
 
 export async function enqueueGuideJob(scanId: string, pinnedProductId: string | null, note: string | null): Promise<void> {
   const suffix = pinnedProductId ? `:${pinnedProductId}` : "";
@@ -50,10 +50,21 @@ async function runJob(job: JobRow): Promise<void> {
     state: {},
   };
 
-  if (config.mockOrchestrator || !config.anthropicApiKey) {
-    await runMockOrchestrator(ctx);
-  } else {
-    await runOrchestrator(ctx, { jobId: job.id });
+  try {
+    if (config.mockOrchestrator) {
+      await runMockOrchestrator(ctx);
+    } else {
+      await runOrchestrator(ctx, { jobId: job.id });
+    }
+  } catch (err) {
+    ctx.state.finished ??= {
+      outcome: "failed",
+      message: "Guiden kunde inte bearbetas just nu. Försök igen om en stund.",
+    };
+    await finalizeRun(ctx).catch((eventError) => {
+      console.error(`[jobs] failed to persist terminal event for ${job.id}:`, eventError);
+    });
+    throw err;
   }
 
   const outcome = ctx.state.finished?.outcome ?? "failed";

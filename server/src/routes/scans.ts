@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { config } from "../env.js";
 import { maybeOne, one, query } from "../db.js";
 import { storeAsset } from "../storage.js";
-import { hub } from "../sse.js";
+import { appendScanEvent, isTerminalScanEvent, listScanEvents } from "../sse.js";
 import { enqueueGuideJob } from "../jobs.js";
 
 export const scans = new Hono();
@@ -64,14 +64,14 @@ scans.post("/", async (c) => {
                 match_method='item_number',match_confidence=1,processed_at=NOW() WHERE id=$1`,
         [scanId, cached.item_number, cached.product_id],
       );
-      hub.emit(scanId, { type: "stage", index: 0, key: "reading_label", status: "started" });
-      hub.emit(scanId, { type: "stage", index: 0, key: "reading_label", status: "done", detail: `Läste art.nr ${cached.item_number}` });
-      hub.emit(scanId, { type: "product_match", productId: cached.product_id, name: cached.product_name, itemNumber: cached.item_number, variant: cached.variant ?? undefined, confidence: 1, method: "item_number", candidates: [] });
-      hub.emit(scanId, { type: "stage", index: 2, key: "finding_instructions", status: "started", detail: "Kontrollerar den verifierade manualen i cache…" });
-      hub.emit(scanId, { type: "stage", index: 2, key: "finding_instructions", status: "done", detail: "Manual hittad · 8 sidor" });
-      hub.emit(scanId, { type: "stage", index: 3, key: "planning", status: "done", detail: `${cached.step_count} handgranskade steg` });
-      hub.emit(scanId, { type: "guide_ready", guideId: cached.guide_id, title: cached.guide_title, videoUrl: "", thumbnailUrl: "", durationSeconds: 0, stepCount: cached.step_count });
-      hub.emit(scanId, { type: "done" });
+      await appendScanEvent(scanId, { type: "stage", index: 0, key: "reading_label", status: "started" });
+      await appendScanEvent(scanId, { type: "stage", index: 0, key: "reading_label", status: "done", detail: `Läste art.nr ${cached.item_number}` });
+      await appendScanEvent(scanId, { type: "product_match", productId: cached.product_id, name: cached.product_name, itemNumber: cached.item_number, variant: cached.variant ?? undefined, confidence: 1, method: "item_number", candidates: [] });
+      await appendScanEvent(scanId, { type: "stage", index: 2, key: "finding_instructions", status: "started", detail: "Kontrollerar den verifierade manualen i cache…" });
+      await appendScanEvent(scanId, { type: "stage", index: 2, key: "finding_instructions", status: "done", detail: "Manual hittad · 8 sidor" });
+      await appendScanEvent(scanId, { type: "stage", index: 3, key: "planning", status: "done", detail: `${cached.step_count} handgranskade steg` });
+      await appendScanEvent(scanId, { type: "guide_ready", guideId: cached.guide_id, title: cached.guide_title, videoUrl: "", thumbnailUrl: "", durationSeconds: 0, stepCount: cached.step_count });
+      await appendScanEvent(scanId, { type: "done" });
       return c.json({ scanId, cacheHit: true }, 202);
     }
   }
@@ -128,22 +128,12 @@ scans.get("/:id", async (c) => {
 
 scans.get("/:id/events", (c) => {
   const scanId = c.req.param("id");
-  const lastId = Number(c.req.header("Last-Event-ID") ?? c.req.query("lastEventId") ?? 0) || 0;
+  let lastId = Number(c.req.header("Last-Event-ID") ?? c.req.query("lastEventId") ?? 0) || 0;
 
   return streamSSE(c, async (stream) => {
-    let unsubscribe = () => {};
     let finished = false;
-    const queue: { id: number; payload: string; type: string }[] = [];
-    let notify: (() => void) | null = null;
-
-    unsubscribe = hub.subscribe(scanId, lastId, (id, event) => {
-      queue.push({ id, payload: JSON.stringify(event), type: event.type });
-      notify?.();
-    });
     stream.onAbort(() => {
       finished = true;
-      unsubscribe();
-      notify?.();
     });
 
     const heartbeat = setInterval(() => {
@@ -152,25 +142,22 @@ scans.get("/:id/events", (c) => {
 
     try {
       while (!finished) {
-        while (queue.length > 0) {
-          const item = queue.shift()!;
-          await stream.writeSSE({ id: String(item.id), event: item.type, data: item.payload });
-          if (item.type === "done" || item.type === "error") finished = true;
+        const events = await listScanEvents(scanId, lastId);
+        for (const item of events) {
+          lastId = item.id;
+          await stream.writeSSE({ id: String(item.id), event: item.event.type, data: JSON.stringify(item.event) });
+          if (isTerminalScanEvent(item.event)) {
+            finished = true;
+            break;
+          }
         }
-        if (finished || hub.isFinished(scanId)) break;
+        if (finished) break;
         await new Promise<void>((resolve) => {
-          notify = resolve;
-          setTimeout(resolve, 5000);
+          setTimeout(resolve, 500);
         });
-        notify = null;
-      }
-      while (queue.length > 0) {
-        const item = queue.shift()!;
-        await stream.writeSSE({ id: String(item.id), event: item.type, data: item.payload });
       }
     } finally {
       clearInterval(heartbeat);
-      unsubscribe();
     }
   });
 });

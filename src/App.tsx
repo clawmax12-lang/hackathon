@@ -66,7 +66,9 @@ type ProductMatch = Extract<ScanEvent, { type: "product_match" }>;
 type PublicConfig = { stripePaymentLinkUrl: string | null; guidePriceSek: number };
 
 const SUGGESTIONS = ["Scan package label", "Identify loose parts", "Create assembly guide"];
-const PITCH_MODE = true;
+// The production flow is real by default. The scripted pitch can only be
+// enabled deliberately in a local/demo environment.
+const PITCH_MODE = import.meta.env.VITE_PITCH_MODE === "true";
 const PITCH_VIDEO_URL = "/tranered-pitch.mp4";
 const PITCH_MATCH: ProductMatch = {
   type: "product_match",
