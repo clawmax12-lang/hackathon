@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Twenty verified-manual products for orchestrator prompt and effort comparisons.",
+  "fixtures": [
+    { "articleNumber": "20275814", "product": "KALLAX", "expectedSteps": 16, "expectedNeedsReview": 0, "gold": true },
+    { "articleNumber": "10609002", "product": "TRANERED", "expectedSteps": 8, "expectedNeedsReview": 0, "gold": true },
+    { "articleNumber": "70253541", "product": "AGAM", "expectedSteps": 14, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "10542115", "product": "ELDFLUGA", "expectedSteps": 10, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "70242656", "product": "TJUSIG", "expectedSteps": 11, "expectedNeedsReview": 1, "gold": false },
+    { "articleNumber": "30497490", "product": "STOFTMOLN", "expectedSteps": 11, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "10564616", "product": "NÅLBLECKA", "expectedSteps": 7, "expectedNeedsReview": 1, "gold": false },
+    { "articleNumber": "80396865", "product": "FRIDANS", "expectedSteps": 17, "expectedNeedsReview": 1, "gold": false },
+    { "articleNumber": "20538721", "product": "HOLMERUD", "expectedSteps": 19, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "50178411", "product": "LÄTT", "expectedSteps": 16, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "30454004", "product": "KROKFJORDEN", "expectedSteps": 11, "expectedNeedsReview": 2, "gold": false },
+    { "articleNumber": "20544492", "product": "SILLTRUT", "expectedSteps": 20, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "30488966", "product": "MÅLA", "expectedSteps": 11, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "60491038", "product": "SILVERLÖNN", "expectedSteps": 11, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "80096372", "product": "FADO", "expectedSteps": 5, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "50333049", "product": "JAKOBSBYN", "expectedSteps": 5, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "10539066", "product": "ROSENMANDEL", "expectedSteps": 10, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "00314468", "product": "SKOGSKLÖVER", "expectedSteps": 14, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "50461937", "product": "FÖRNUFTIG", "expectedSteps": 19, "expectedNeedsReview": 1, "gold": false },
+    { "articleNumber": "30401510", "product": "LIVSÅR", "expectedSteps": 6, "expectedNeedsReview": 0, "gold": false }
+  ]
+}
