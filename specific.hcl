@@ -85,7 +85,7 @@ build "api" {
 
 service "api" {
   build   = build.api
-  command = "npx tsx scripts/start-api-with-catalog-sync.ts"
+  command = "npx tsx server/src/index.ts"
 
   endpoint {
     public = true
