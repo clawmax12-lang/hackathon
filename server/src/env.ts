@@ -89,4 +89,10 @@ export const config = {
   sampleDir: path.resolve(import.meta.dirname, "../assets/sample"),
 };
 
+if (config.visionEffort && config.visionModel === "claude-haiku-4-5") {
+  throw new Error(
+    "ANTHROPIC_EFFORT_VISION requires a model that supports effort; claude-haiku-4-5 does not",
+  );
+}
+
 export type Config = typeof config;

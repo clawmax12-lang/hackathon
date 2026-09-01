@@ -4,7 +4,7 @@ import type {
   BetaToolResultBlockParam,
   BetaToolUseBlock,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { config } from "../env.js";
+import { config, type AnthropicEffort } from "../env.js";
 import { query } from "../db.js";
 import { anthropicClient } from "../pipeline/identify.js";
 import {
@@ -27,6 +27,9 @@ const USD_PER_CACHE_READ_TOKEN = 0.5 / 1_000_000;
 
 export interface RunOptions {
   jobId: string | null;
+  systemPromptVersion?: string;
+  effort?: AnthropicEffort;
+  maxCostUsd?: number;
 }
 
 export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promise<void> {
@@ -35,9 +38,12 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
   let turns = 0;
   let refusalRetries = 0;
   const deadline = Date.now() + 12 * 60 * 1000;
-  const systemPrompt = getSystemPrompt(config.orchestratorPromptVersion);
-  const effectiveEffort = config.orchestratorEffort ?? "high";
-  ctx.promptVersion ??= guidePromptVersion(config.orchestratorPromptVersion, STYLE_PROMPT_VERSION);
+  const systemPromptVersion = opts.systemPromptVersion ?? config.orchestratorPromptVersion;
+  const effort = opts.effort ?? config.orchestratorEffort;
+  const effectiveEffort = effort ?? "default";
+  const maxCostUsd = Math.min(opts.maxCostUsd ?? config.maxCostUsd, config.maxCostUsd);
+  const systemPrompt = getSystemPrompt(systemPromptVersion);
+  ctx.promptVersion ??= guidePromptVersion(systemPromptVersion, STYLE_PROMPT_VERSION);
 
   let initialIdentification: string | null = null;
   if (!ctx.pinnedProductId) {
@@ -80,8 +86,8 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
         system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
         tools: TOOL_DEFINITIONS,
         messages,
-        ...(config.orchestratorEffort
-          ? { output_config: { effort: config.orchestratorEffort } }
+        ...(effort
+          ? { output_config: { effort } }
           : {}),
       },
       { timeout: 300000 },
@@ -107,7 +113,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
           costUsd.toFixed(4),
           effectiveEffort,
           resp.stop_reason,
-          config.orchestratorPromptVersion,
+          systemPromptVersion,
           toolUses.length,
         ],
       ).catch((error) => {
@@ -122,7 +128,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
         turn: turns,
         model: resp.model,
         effort: effectiveEffort,
-        prompt_version: config.orchestratorPromptVersion,
+        prompt_version: systemPromptVersion,
         stop_reason: resp.stop_reason,
         tool_calls: toolUses.length,
         input_tokens: inTok + cacheTok,
@@ -134,7 +140,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
     messages.push({ role: "assistant", content: resp.content });
 
     if (resp.stop_reason === "refusal") {
-      if (shouldRetryRefusal(refusalRetries, costUsd, config.maxCostUsd)) {
+      if (shouldRetryRefusal(refusalRetries, costUsd, maxCostUsd)) {
         refusalRetries += 1;
         appendUserTurn(messages, REFUSAL_RETRY);
         continue;
@@ -149,7 +155,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
     // A response can contain valid tool calls even when the provider labels the
     // stop as max_tokens. Always execute the calls that are actually present.
     if (toolUses.length === 0) {
-      if (!ctx.state.finished && turns < config.maxTurns && costUsd <= config.maxCostUsd) {
+      if (!ctx.state.finished && turns < config.maxTurns && costUsd <= maxCostUsd) {
         appendUserTurn(
           messages,
           "Fortsätt nu genom att anropa nästa nödvändiga verktyg. Avsluta inte med vanlig text; kalla finish när guiden är klar eller ärligt blockerad.",
@@ -178,8 +184,8 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
     const followup: BetaContentBlockParam[] = [...results];
     appendUserTurn(messages, followup, {
       costGuardMessage:
-        costUsd > config.maxCostUsd
-          ? `Cost guard reached ($${costUsd.toFixed(2)} > $${config.maxCostUsd}). Finish now: if the video is rendered call finish(success); otherwise call finish(failed) with a helpful Swedish message.`
+        costUsd > maxCostUsd
+          ? `Cost guard reached ($${costUsd.toFixed(2)} > $${maxCostUsd.toFixed(2)}). Finish now: if the video is rendered call finish(success); otherwise call finish(failed) with a helpful Swedish message.`
           : undefined,
     });
 

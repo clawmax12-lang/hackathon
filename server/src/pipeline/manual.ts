@@ -263,11 +263,20 @@ export async function fetchAndVerifyManualPdf(url: string, productId: string): P
   return { document_id: doc.id, page_count: pageCount, ok: true, failure_reason: null };
 }
 
-export async function getManualDocument(documentId: string) {
+export async function getManualDocument(documentId: string, productId: string) {
   return maybeOne<{ id: string; canonical_url: string; page_count: number | null; storage_key: string | null; checksum_sha256: string | null }>(
     `SELECT sd.id, sd.canonical_url, sd.page_count, ma.storage_key, sd.checksum_sha256
-       FROM source_documents sd LEFT JOIN media_assets ma ON ma.id = sd.asset_id
-      WHERE sd.id = $1`,
-    [documentId],
+       FROM source_documents sd
+       JOIN product_documents pd
+         ON pd.document_id = sd.id
+        AND pd.product_id = $2
+        AND pd.relationship = 'assembly_manual'
+       JOIN media_assets ma
+         ON ma.id = sd.asset_id
+        AND ma.storage_key IS NOT NULL
+      WHERE sd.id = $1
+        AND sd.status = 'ready'
+        AND sd.page_count > 0`,
+    [documentId, productId],
   );
 }
