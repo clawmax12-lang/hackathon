@@ -54,6 +54,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
   let inputTokens = 0;
   let outputTokens = 0;
   let refusalRetries = 0;
+  let costGuardCrossed = false;
   const deadline = Date.now() + 12 * 60 * 1000;
   const systemPromptVersion = opts.systemPromptVersion ?? config.orchestratorPromptVersion;
   const effort = opts.effort ?? config.orchestratorEffort;
@@ -105,6 +106,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
 
   while (turns < config.maxTurns) {
     if (Date.now() > deadline) throw new Error("orchestrator deadline exceeded (12 min)");
+    const isCostGuardClosingTurn = costGuardCrossed;
     turns += 1;
 
     const resp = await client.beta.messages.create(
@@ -127,7 +129,11 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
     inputTokens += inTok + cacheTok;
     outputTokens += resp.usage.output_tokens;
     costUsd += estimateAnthropicCostUsd(resp.model, resp.usage);
-    const toolUses = resp.content.filter((block): block is BetaToolUseBlock => block.type === "tool_use");
+    if (costUsd > maxCostUsd) costGuardCrossed = true;
+    const requestedToolUses = resp.content.filter((block): block is BetaToolUseBlock => block.type === "tool_use");
+    const toolUses = isCostGuardClosingTurn
+      ? requestedToolUses.filter((toolUse) => toolUse.name === "finish")
+      : requestedToolUses;
     if (opts.jobId) {
       await query(
         `INSERT INTO job_attempts
@@ -145,7 +151,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
           effectiveEffort,
           resp.stop_reason,
           systemPromptVersion,
-          toolUses.length,
+          requestedToolUses.length,
         ],
       ).catch((error) => {
         console.warn(`[orchestrator] failed to record attempt ${turns} for job ${opts.jobId}`, error);
@@ -161,7 +167,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
         effort: effectiveEffort,
         prompt_version: systemPromptVersion,
         stop_reason: resp.stop_reason,
-        tool_calls: toolUses.length,
+        tool_calls: requestedToolUses.length,
         input_tokens: inTok + cacheTok,
         output_tokens: resp.usage.output_tokens,
         cumulative_cost_usd: Number(costUsd.toFixed(4)),
@@ -179,6 +185,14 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
       ctx.state.finished = {
         outcome: "failed",
         message: "Guiden kunde inte skapas eftersom modellförfrågan stoppades. Försök igen med en tydligare produktbild.",
+      };
+      break;
+    }
+
+    if (isCostGuardClosingTurn && toolUses.length === 0) {
+      ctx.state.finished = {
+        outcome: "failed",
+        message: "Genereringen stoppades när kostnadsgränsen nåddes.",
       };
       break;
     }
@@ -220,6 +234,13 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
           : undefined,
     });
 
+    if (isCostGuardClosingTurn) {
+      ctx.state.finished ??= {
+        outcome: "failed",
+        message: "Genereringen stoppades när kostnadsgränsen nåddes.",
+      };
+      break;
+    }
     if (ctx.state.finished) break;
   }
 
