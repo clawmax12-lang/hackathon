@@ -339,7 +339,7 @@ function ThinkingState({ trace, match, renderProgress, elapsedMs, error, recover
   scanId: string | null;
 }) {
   return (
-    <section className="thinking-state" aria-live="polite">
+    <section className={`thinking-state ${error ? "thinking-state--recovery" : ""}`} aria-live="polite">
       <div className="thinking-state__content">
       {elapsedMs !== null && !error ? <div className="thinking-summary"><Check size={18} strokeWidth={3} /><strong>Hittade din möbel på {(elapsedMs / 1000).toLocaleString("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s</strong></div> : <span className="thinking-kicker">Fota. Lyssna. Bygg.</span>}
       <ol className="trace-list">

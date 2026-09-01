@@ -831,6 +831,8 @@ input:focus-visible {
   background: linear-gradient(to top, rgba(0, 0, 0, 0.94) 5%, rgba(0, 0, 0, 0.7) 62%, rgba(0, 0, 0, 0.3));
 }
 
+.thinking-state--recovery { background: #000; }
+
 .thinking-state__content {
   width: 100%;
   max-height: 100%;
