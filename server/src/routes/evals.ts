@@ -1,8 +1,22 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { maybeOne, one, query } from "../db.js";
 import { config } from "../env.js";
+
+const evalChildren = new Set<ChildProcess>();
+const forwardSigterm = () => {
+  for (const child of evalChildren) child.kill("SIGTERM");
+  process.off("SIGTERM", forwardSigterm);
+  process.kill(process.pid, "SIGTERM");
+};
+const forwardSigint = () => {
+  for (const child of evalChildren) child.kill("SIGINT");
+  process.off("SIGINT", forwardSigint);
+  process.kill(process.pid, "SIGINT");
+};
+process.once("SIGTERM", forwardSigterm);
+process.once("SIGINT", forwardSigint);
 
 export function isAuthorizedEvalRequest(authorization: string | undefined, token: string): boolean {
   if (!authorization || !token) return false;
@@ -91,7 +105,9 @@ evals.post("/", async (c) => {
       stdio: "inherit",
     },
   );
+  evalChildren.add(child);
   child.once("exit", (code) => {
+    evalChildren.delete(child);
     const exitCode = code ?? 1;
     void query(
       `UPDATE orchestrator_eval_matrices
@@ -110,6 +126,7 @@ evals.post("/", async (c) => {
     );
   });
   child.once("error", (error) => {
+    evalChildren.delete(child);
     console.error("[orchestrator-evals] matrix process failed to start", error);
     void query(
       `UPDATE orchestrator_eval_matrices

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import pg from "pg";
 
 const matrixId = process.env.ORCHESTRATOR_EVAL_MATRIX_ID ?? "";
@@ -21,15 +21,22 @@ if (!Number.isFinite(maxUsdPerBatch) || maxUsdPerBatch <= 0 || maxUsdPerBatch > 
 }
 
 async function run(args: string[]): Promise<void> {
+  if (abortReason) throw abortReason;
   await new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", "scripts/eval-orchestrator.ts", ...args], {
       cwd: process.cwd(),
       env: process.env,
       stdio: "inherit",
     });
-    child.once("error", reject);
+    activeChild = child;
+    child.once("error", (error) => {
+      activeChild = null;
+      reject(abortReason ?? error);
+    });
     child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
+      activeChild = null;
+      if (abortReason) reject(abortReason);
+      else if (code === 0) resolve();
       else reject(new Error(`eval command exited ${code ?? signal ?? "unknown"}`));
     });
   });
@@ -38,13 +45,29 @@ async function run(args: string[]): Promise<void> {
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
 await db.connect();
+let activeChild: ChildProcess | null = null;
+let abortReason: Error | null = null;
+const abort = (reason: Error) => {
+  abortReason ??= reason;
+  activeChild?.kill("SIGTERM");
+};
+const onSigterm = () => abort(new Error("matrix received SIGTERM"));
+const onSigint = () => abort(new Error("matrix received SIGINT"));
+process.once("SIGTERM", onSigterm);
+process.once("SIGINT", onSigint);
 const heartbeat = setInterval(() => {
   void db
     .query(
-      "UPDATE orchestrator_eval_matrices SET heartbeat_at = now() WHERE id = $1 AND status = 'running'",
+      `UPDATE orchestrator_eval_matrices
+          SET heartbeat_at = now()
+        WHERE id = $1 AND status = 'running'
+      RETURNING id`,
       [matrixId],
     )
-    .catch((error) => console.error("[orchestrator-evals] heartbeat failed", error));
+    .then((result) => {
+      if (result.rowCount !== 1) abort(new Error("matrix lease ownership was lost"));
+    })
+    .catch((error) => abort(new Error(`matrix heartbeat failed: ${(error as Error).message}`)));
 }, 15_000);
 
 try {
@@ -75,6 +98,7 @@ try {
     `--baseline-batch=${baselineBatchId}`,
     `--candidate-batch=${candidateBatchId}`,
   ]);
+  if (abortReason) throw abortReason;
   await db.query(
     `UPDATE orchestrator_eval_matrices
         SET status = 'succeeded', exit_code = 0, completed_at = now(), heartbeat_at = now()
@@ -92,5 +116,8 @@ try {
   throw error;
 } finally {
   clearInterval(heartbeat);
+  process.off("SIGTERM", onSigterm);
+  process.off("SIGINT", onSigint);
+  activeChild?.kill("SIGTERM");
   await db.end();
 }
