@@ -25,6 +25,8 @@ export interface ToolContext {
   userNote: string | null;
   pinnedProductId: string | null;
   promptVersion?: string;
+  requiredDocumentId?: string;
+  mediaMode?: "full" | "skip";
   state: {
     productId?: string;
     documentId?: string;
@@ -354,8 +356,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       await stage(ctx, "planning", "started");
       const productId = String(input.product_id);
       const documentId = String(input.document_id);
+      if (ctx.requiredDocumentId && documentId !== ctx.requiredDocumentId) {
+        return JSON.stringify({ ok: false, error: "this run is pinned to a different verified manual" });
+      }
       const product = await getProduct(productId);
-      const doc = await getManualDocument(documentId);
+      const doc = await getManualDocument(documentId, productId);
       if (!product || !doc) return JSON.stringify({ ok: false, error: "unknown product or document" });
       const promptVersion = ctx.promptVersion ?? PROMPT_VERSION;
 
@@ -464,6 +469,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const count = await maybeOne<{ n: string }>("SELECT count(*) n FROM assembly_steps WHERE guide_id = $1", [ctx.state.guideId]);
       await stage(ctx, "planning", "done", `${count?.n ?? "?"} steg planerade`);
       await stage(ctx, "rendering", "started", "Skapar berättarröst…");
+      if (ctx.mediaMode === "skip") {
+        ctx.state.stepCount = Number(count?.n ?? 0);
+        await query("UPDATE assembly_guides SET status='ready',updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
+        return JSON.stringify({ ok: true, skipped: "media disabled for isolated evaluation" });
+      }
       const res = await synthesizeNarration(ctx.state.guideId);
       ctx.state.stepCount = res.steps.length;
       await query("UPDATE assembly_guides SET status='ready',published_at=NOW(),updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
@@ -473,6 +483,13 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
     case "render_video": {
       if (!ctx.state.guideId) return JSON.stringify({ ok: false, error: "no guide yet" });
+      if (ctx.mediaMode === "skip") {
+        ctx.state.videoUrl = "";
+        ctx.state.thumbnailUrl = "";
+        ctx.state.durationSeconds = 0;
+        await stage(ctx, "rendering", "done", "Media hoppas över i isolerat kvalitetstest");
+        return JSON.stringify({ ok: true, skipped: "media disabled for isolated evaluation" });
+      }
       const res = await renderVideo(ctx.state.guideId, (done, total, label) =>
         void emit(ctx, { type: "render_progress", done, total, label }).catch((error) => console.error("[scan-events] render progress", error)),
       );
