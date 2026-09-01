@@ -20,6 +20,8 @@ CREATE TABLE orchestrator_eval_runs (
   actual_steps INTEGER NOT NULL,
   expected_needs_review INTEGER NOT NULL,
   actual_needs_review INTEGER NOT NULL,
+  grounding_assertions_passed INTEGER NOT NULL,
+  grounding_assertions_total INTEGER NOT NULL,
   turns INTEGER NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
@@ -37,6 +39,8 @@ ALTER TABLE orchestrator_eval_runs
   CHECK (
     expected_steps >= 0 AND actual_steps >= 0
     AND expected_needs_review >= 0 AND actual_needs_review >= 0
+    AND grounding_assertions_passed >= 0
+    AND grounding_assertions_total >= grounding_assertions_passed
     AND turns >= 0 AND input_tokens >= 0 AND output_tokens >= 0
     AND estimated_cost_usd >= 0 AND duration_ms >= 0
   );

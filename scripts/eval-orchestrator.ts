@@ -9,6 +9,9 @@ interface Fixture {
   expectedSteps: number;
   expectedNeedsReview: number;
   gold: boolean;
+  expectedPageSequence?: number[];
+  requiredPartTokens?: Record<string, string[]>;
+  requiredWarningSteps?: number[];
 }
 
 interface FixtureFile {
@@ -30,6 +33,8 @@ interface EvaluationResult {
   actualSteps: number;
   expectedNeedsReview: number;
   actualNeedsReview: number;
+  groundingAssertionsPassed: number;
+  groundingAssertionsTotal: number;
   turns: number;
   inputTokens: number;
   outputTokens: number;
@@ -49,6 +54,8 @@ interface EvalRow {
   actual_steps: number;
   expected_needs_review: number;
   actual_needs_review: number;
+  grounding_assertions_passed: number;
+  grounding_assertions_total: number;
   turns: number;
   input_tokens: number;
   output_tokens: number;
@@ -68,10 +75,12 @@ const args = parseArgs({
     effort: { type: "string", default: "default" },
     model: { type: "string" },
     limit: { type: "string", default: "20" },
+    "max-total-anthropic-usd": { type: "string", default: "25" },
     articles: { type: "string", default: "" },
     "confirm-provider-costs": { type: "boolean", default: false },
     "baseline-batch": { type: "string" },
     "candidate-batch": { type: "string" },
+    "batch-id": { type: "string" },
   },
   strict: true,
 });
@@ -80,6 +89,14 @@ function positiveLimit(value: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
     throw new Error("--limit must be an integer from 1 to 20");
+  }
+  return parsed;
+}
+
+function positiveUsd(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 60) {
+    throw new Error("--max-total-anthropic-usd must be greater than 0 and at most 60");
   }
   return parsed;
 }
@@ -117,7 +134,43 @@ function setRunEnvironment(): void {
   if (args.values.model) process.env.ANTHROPIC_ORCHESTRATOR_MODEL = args.values.model;
 }
 
+function scoreGrounding(
+  fixture: Fixture,
+  steps: Array<{
+    step_number: number;
+    manual_pages: number[] | null;
+    parts: unknown;
+    safety_warning: string | null;
+  }>,
+): { passed: number; total: number } {
+  let passed = 0;
+  let total = 0;
+  const byNumber = new Map(steps.map((step) => [step.step_number, step]));
+
+  for (const [index, expectedPage] of (fixture.expectedPageSequence ?? []).entries()) {
+    total += 1;
+    if (byNumber.get(index + 1)?.manual_pages?.includes(expectedPage)) passed += 1;
+  }
+  for (const [stepNumber, tokens] of Object.entries(fixture.requiredPartTokens ?? {})) {
+    const parts = JSON.stringify(byNumber.get(Number(stepNumber))?.parts ?? []).toLowerCase();
+    for (const token of tokens) {
+      total += 1;
+      if (parts.includes(token.toLowerCase())) passed += 1;
+    }
+  }
+  for (const stepNumber of fixture.requiredWarningSteps ?? []) {
+    total += 1;
+    if (byNumber.get(stepNumber)?.safety_warning?.trim()) passed += 1;
+  }
+  return { passed, total };
+}
+
 async function runSuite(): Promise<void> {
+  if (!["1", "true"].includes(process.env.ORCHESTRATOR_EVAL_ENABLED ?? "")) {
+    throw new Error(
+      "orchestrator evals are disabled; enable ORCHESTRATOR_EVAL_ENABLED only in an isolated Specific preview",
+    );
+  }
   if (!args.values["confirm-provider-costs"]) {
     throw new Error("run calls real Anthropic and ElevenLabs APIs; pass --confirm-provider-costs");
   }
@@ -135,9 +188,6 @@ async function runSuite(): Promise<void> {
   if (!config.anthropicApiKey) {
     throw new Error("ANTHROPIC_API_KEY is required; execute this command in a Specific preview");
   }
-  if (!config.elevenLabsApiKey) {
-    throw new Error("ELEVENLABS_API_KEY is required for end-to-end evals");
-  }
 
   const fixtureFile = await loadFixtures(args.values["fixture-file"]!);
   const requestedArticles = selectedArticles(args.values.articles ?? "");
@@ -146,8 +196,13 @@ async function runSuite(): Promise<void> {
     .slice(0, positiveLimit(args.values.limit!));
   if (fixtures.length === 0) throw new Error("no fixtures matched --articles");
 
-  const batchId = randomUUID();
-  const effort = config.orchestratorEffort ?? "high";
+  const requestedBatchId = args.values["batch-id"];
+  if (requestedBatchId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedBatchId)) {
+    throw new Error("--batch-id must be a version-4 UUID");
+  }
+  const batchId = requestedBatchId ?? randomUUID();
+  const maxTotalAnthropicUsd = positiveUsd(args.values["max-total-anthropic-usd"]!);
+  const effort = config.orchestratorEffort ?? "default";
   console.log(
     JSON.stringify({
       event: "eval_batch_started",
@@ -156,6 +211,8 @@ async function runSuite(): Promise<void> {
       model: config.orchestratorModel,
       effort,
       promptVersion: config.orchestratorPromptVersion,
+      maxTotalAnthropicUsd,
+      mediaMode: "skip",
     }),
   );
 
@@ -229,7 +286,14 @@ async function runSuite(): Promise<void> {
   });
 
   const results: EvaluationResult[] = [];
+  let spentAnthropicUsd = 0;
   for (const [index, fixture] of fixtures.entries()) {
+    const remainingAnthropicUsd = maxTotalAnthropicUsd - spentAnthropicUsd;
+    if (remainingAnthropicUsd < 0.01) {
+      throw new Error(
+        `aggregate Anthropic cost guard reached ($${spentAnthropicUsd.toFixed(4)} of $${maxTotalAnthropicUsd.toFixed(2)})`,
+      );
+    }
     const product = products.get(fixture.articleNumber)!;
 
     const scanId = randomUUID();
@@ -261,12 +325,19 @@ async function runSuite(): Promise<void> {
       userNote: `Isolerat orchestrator-test för ${fixture.product} ${fixture.articleNumber}`,
       pinnedProductId: product.product_id,
       promptVersion: `eval-v${fixtureFile.version}:${config.orchestratorPromptVersion}:${batchId}`,
+      requiredDocumentId: product.document_id,
+      mediaMode: "skip",
       state: {},
     };
     const started = Date.now();
     let error: string | null = null;
     try {
-      await orchestrator.runOrchestrator(ctx, { jobId: job.id });
+      await orchestrator.runOrchestrator(ctx, {
+        jobId: job.id,
+        systemPromptVersion: config.orchestratorPromptVersion,
+        effort: config.orchestratorEffort,
+        maxCostUsd: remainingAnthropicUsd,
+      });
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
       ctx.state.finished ??= {
@@ -276,37 +347,42 @@ async function runSuite(): Promise<void> {
       await tools.finalizeRun(ctx).catch(() => {});
     }
     const durationMs = Date.now() - started;
-    const succeeded = ctx.state.finished?.outcome === "success";
-    await db.query(
-      `UPDATE ingestion_jobs
-          SET status = $2, completed_at = now(), updated_at = now(),
-              output = $3::jsonb, error_message = $4
-        WHERE id = $1`,
-      [
-        job.id,
-        succeeded ? "succeeded" : "failed",
-        JSON.stringify(ctx.state.finished ?? {}),
-        error,
-      ],
-    );
 
     const guide = ctx.promptVersion
       ? await db.maybeOne<{
           id: string;
+          status: string;
+          manual_document_id: string | null;
           step_count: number;
           needs_review_count: number;
         }>(
-          `SELECT ag.id, count(s.id)::int AS step_count,
+          `SELECT ag.id, ag.status::text, ag.manual_document_id,
+                  count(s.id)::int AS step_count,
                   count(s.id) FILTER (WHERE s.needs_review)::int AS needs_review_count
              FROM assembly_guides ag
              LEFT JOIN assembly_steps s ON s.guide_id = ag.id
             WHERE ag.product_id = $1 AND ag.prompt_version = $2
-            GROUP BY ag.id, ag.updated_at
+            GROUP BY ag.id, ag.status, ag.manual_document_id, ag.updated_at
             ORDER BY ag.updated_at DESC
             LIMIT 1`,
           [product.product_id, ctx.promptVersion],
         )
       : null;
+    const guideSteps = guide
+      ? await db.query<{
+          step_number: number;
+          manual_pages: number[] | null;
+          parts: unknown;
+          safety_warning: string | null;
+        }>(
+          `SELECT step_number, manual_pages, parts, safety_warning
+             FROM assembly_steps
+            WHERE guide_id = $1
+            ORDER BY step_number`,
+          [guide.id],
+        )
+      : [];
+    const grounding = scoreGrounding(fixture, guideSteps);
     const usage = await db.one<{
       turns: number;
       input_tokens: number;
@@ -320,6 +396,27 @@ async function runSuite(): Promise<void> {
          FROM job_attempts
         WHERE job_id = $1`,
       [job.id],
+    );
+    const producedValidGuide =
+      guide?.status === "ready" &&
+      guide.manual_document_id === product.document_id &&
+      guide.step_count > 0 &&
+      ctx.state.videoUrl !== undefined;
+    const succeeded = ctx.state.finished?.outcome === "success" && producedValidGuide;
+    if (ctx.state.finished?.outcome === "success" && !producedValidGuide) {
+      error ??= "orchestrator reported success without a ready, nonempty guide for the pinned manual";
+    }
+    await db.query(
+      `UPDATE ingestion_jobs
+          SET status = $2, completed_at = now(), updated_at = now(),
+              output = $3::jsonb, error_message = $4
+        WHERE id = $1`,
+      [
+        job.id,
+        succeeded ? "succeeded" : "failed",
+        JSON.stringify(ctx.state.finished ?? {}),
+        error,
+      ],
     );
 
     const result: EvaluationResult = {
@@ -336,6 +433,8 @@ async function runSuite(): Promise<void> {
       actualSteps: guide?.step_count ?? 0,
       expectedNeedsReview: fixture.expectedNeedsReview,
       actualNeedsReview: guide?.needs_review_count ?? 0,
+      groundingAssertionsPassed: grounding.passed,
+      groundingAssertionsTotal: grounding.total,
       turns: usage.turns,
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
@@ -344,15 +443,17 @@ async function runSuite(): Promise<void> {
       guideId: guide?.id ?? null,
       error,
     };
+    spentAnthropicUsd += result.estimatedCostUsd;
     await db.query(
       `INSERT INTO orchestrator_eval_runs
          (batch_id, suite_version, product_id, scan_id, job_id, article_number,
           model, effort, prompt_version, status, expected_steps, actual_steps,
-          expected_needs_review, actual_needs_review, turns, input_tokens,
-          output_tokens, estimated_cost_usd, duration_ms, result)
+          expected_needs_review, actual_needs_review, grounding_assertions_passed,
+          grounding_assertions_total, turns, input_tokens, output_tokens,
+          estimated_cost_usd, duration_ms, result)
        VALUES
          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-          $15, $16, $17, $18, $19, $20::jsonb)`,
+          $15, $16, $17, $18, $19, $20, $21, $22::jsonb)`,
       [
         batchId,
         fixtureFile.version,
@@ -368,6 +469,8 @@ async function runSuite(): Promise<void> {
         result.actualSteps,
         result.expectedNeedsReview,
         result.actualNeedsReview,
+        result.groundingAssertionsPassed,
+        result.groundingAssertionsTotal,
         result.turns,
         result.inputTokens,
         result.outputTokens,
@@ -404,8 +507,13 @@ interface Summary {
   goldExactStepCount: number;
   goldFixtures: number;
   meanAbsoluteStepDelta: number;
+  goldMeanAbsoluteStepDelta: number;
   totalNeedsReview: number;
   needsReviewDeviation: number;
+  goldNeedsReviewDeviation: number;
+  groundingAssertionsPassed: number;
+  groundingAssertionsTotal: number;
+  groundingRate: number;
   turns: number;
   inputTokens: number;
   outputTokens: number;
@@ -419,7 +527,10 @@ function summarize(results: Array<Pick<
   | "gold"
   | "expectedSteps"
   | "actualSteps"
+  | "expectedNeedsReview"
   | "actualNeedsReview"
+  | "groundingAssertionsPassed"
+  | "groundingAssertionsTotal"
   | "turns"
   | "inputTokens"
   | "outputTokens"
@@ -439,11 +550,35 @@ function summarize(results: Array<Pick<
           Math.max(1, results.length)) *
           100,
       ) / 100,
+    goldMeanAbsoluteStepDelta:
+      Math.round(
+        (gold.reduce((sum, result) => sum + Math.abs(result.expectedSteps - result.actualSteps), 0) /
+          Math.max(1, gold.length)) *
+          100,
+      ) / 100,
     totalNeedsReview: results.reduce((sum, result) => sum + result.actualNeedsReview, 0),
     needsReviewDeviation: results.reduce(
       (sum, result) => sum + Math.abs(result.expectedNeedsReview - result.actualNeedsReview),
       0,
     ),
+    goldNeedsReviewDeviation: gold.reduce(
+      (sum, result) => sum + Math.abs(result.expectedNeedsReview - result.actualNeedsReview),
+      0,
+    ),
+    groundingAssertionsPassed: gold.reduce(
+      (sum, result) => sum + result.groundingAssertionsPassed,
+      0,
+    ),
+    groundingAssertionsTotal: gold.reduce(
+      (sum, result) => sum + result.groundingAssertionsTotal,
+      0,
+    ),
+    groundingRate:
+      Math.round(
+        (gold.reduce((sum, result) => sum + result.groundingAssertionsPassed, 0) /
+          Math.max(1, gold.reduce((sum, result) => sum + result.groundingAssertionsTotal, 0))) *
+          10000,
+      ) / 10000,
     turns: results.reduce((sum, result) => sum + result.turns, 0),
     inputTokens: results.reduce((sum, result) => sum + result.inputTokens, 0),
     outputTokens: results.reduce((sum, result) => sum + result.outputTokens, 0),
@@ -460,7 +595,8 @@ async function readBatch(batchId: string): Promise<EvaluationResult[]> {
   const rows = await db.query<EvalRow>(
     `SELECT article_number, model, effort, prompt_version, status,
             expected_steps, actual_steps, expected_needs_review,
-            actual_needs_review, turns, input_tokens, output_tokens,
+            actual_needs_review, grounding_assertions_passed,
+            grounding_assertions_total, turns, input_tokens, output_tokens,
             estimated_cost_usd::text, duration_ms, result
        FROM orchestrator_eval_runs
       WHERE batch_id = $1
@@ -482,6 +618,8 @@ async function readBatch(batchId: string): Promise<EvaluationResult[]> {
     actualSteps: row.actual_steps,
     expectedNeedsReview: row.expected_needs_review,
     actualNeedsReview: row.actual_needs_review,
+    groundingAssertionsPassed: row.grounding_assertions_passed,
+    groundingAssertionsTotal: row.grounding_assertions_total,
     turns: row.turns,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
@@ -508,14 +646,22 @@ async function compareBatches(): Promise<void> {
   const after = summarize(candidate);
   const fidelityNotWorse =
     after.successful >= before.successful &&
-    after.exactStepCount >= before.exactStepCount &&
     after.goldExactStepCount >= before.goldExactStepCount &&
-    after.needsReviewDeviation <= before.needsReviewDeviation;
+    after.goldMeanAbsoluteStepDelta <= before.goldMeanAbsoluteStepDelta &&
+    after.goldNeedsReviewDeviation <= before.goldNeedsReviewDeviation &&
+    after.groundingRate >= before.groundingRate &&
+    after.groundingAssertionsPassed === after.groundingAssertionsTotal;
+  const withinTolerance = (candidateValue: number, baselineValue: number, multiplier: number) =>
+    baselineValue === 0 ? candidateValue === 0 : candidateValue <= baselineValue * multiplier;
+  const operationalNotWorse =
+    withinTolerance(after.turns, before.turns, 1.05) &&
+    withinTolerance(after.estimatedCostUsd, before.estimatedCostUsd, 1.05) &&
+    withinTolerance(after.durationMs, before.durationMs, 1.1);
   const operationalImprovement =
     after.turns < before.turns ||
     after.estimatedCostUsd < before.estimatedCostUsd ||
     after.durationMs < before.durationMs;
-  const verdict = fidelityNotWorse && operationalImprovement ? "pass" : "hold";
+  const verdict = fidelityNotWorse && operationalNotWorse && operationalImprovement ? "pass" : "hold";
 
   console.log("| Metric | Baseline | Candidate |");
   console.log("|---|---:|---:|");
@@ -524,8 +670,13 @@ async function compareBatches(): Promise<void> {
     ["Exact step count", "exactStepCount"],
     ["Gold exact step count", "goldExactStepCount"],
     ["Mean absolute step delta", "meanAbsoluteStepDelta"],
+    ["Gold mean absolute step delta", "goldMeanAbsoluteStepDelta"],
     ["Needs-review steps", "totalNeedsReview"],
     ["Needs-review deviation", "needsReviewDeviation"],
+    ["Gold needs-review deviation", "goldNeedsReviewDeviation"],
+    ["Grounding assertions passed", "groundingAssertionsPassed"],
+    ["Grounding assertions total", "groundingAssertionsTotal"],
+    ["Grounding rate", "groundingRate"],
     ["Turns", "turns"],
     ["Input tokens", "inputTokens"],
     ["Output tokens", "outputTokens"],
@@ -541,6 +692,7 @@ async function compareBatches(): Promise<void> {
         baselineBatch: baselineId,
         candidateBatch: candidateId,
         fidelityNotWorse,
+        operationalNotWorse,
         operationalImprovement,
         verdict,
       },
