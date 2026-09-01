@@ -37,7 +37,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
   const deadline = Date.now() + 12 * 60 * 1000;
   const systemPrompt = getSystemPrompt(config.orchestratorPromptVersion);
   const effectiveEffort = config.orchestratorEffort ?? "high";
-  ctx.promptVersion = guidePromptVersion(config.orchestratorPromptVersion, STYLE_PROMPT_VERSION);
+  ctx.promptVersion ??= guidePromptVersion(config.orchestratorPromptVersion, STYLE_PROMPT_VERSION);
 
   let initialIdentification: string | null = null;
   if (!ctx.pinnedProductId) {
