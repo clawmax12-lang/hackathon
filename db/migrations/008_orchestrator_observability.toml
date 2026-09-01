@@ -37,11 +37,3 @@ table = "job_attempts"
   type = "INTEGER"
   nullable = false
   default = "0"
-
-[[actions]]
-type = "custom"
-start = """
-ALTER TABLE job_attempts
-  ADD CONSTRAINT job_attempts_tool_calls_nonnegative
-  CHECK (tool_calls_in_turn >= 0);
-"""
