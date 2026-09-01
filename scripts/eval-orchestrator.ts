@@ -57,6 +57,8 @@ interface EvalRow {
   result: { product?: string; gold?: boolean };
 }
 
+let activeDb: typeof import("../server/src/db.js") | null = null;
+
 const command = process.argv[2];
 const args = parseArgs({
   args: process.argv.slice(3),
@@ -129,6 +131,7 @@ async function runSuite(): Promise<void> {
     import("../server/src/orchestrator/run.js"),
     import("../server/src/orchestrator/tools.js"),
   ]);
+  activeDb = db;
   if (!config.anthropicApiKey) {
     throw new Error("ANTHROPIC_API_KEY is required; execute this command in a Specific preview");
   }
@@ -156,19 +159,18 @@ async function runSuite(): Promise<void> {
     }),
   );
 
-  const placeholder = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-    "base64",
-  );
-  const placeholderAssetId = await storage.storeAsset({
-    kind: "scan_image",
-    storageKey: `evals/${batchId}/pinned-product-placeholder.png`,
-    data: placeholder,
-    metadata: { purpose: "orchestrator_eval", batch_id: batchId },
-  });
-
-  const results: EvaluationResult[] = [];
-  for (const [index, fixture] of fixtures.entries()) {
+  const products = new Map<
+    string,
+    {
+      product_id: string;
+      product_name: string;
+      document_id: string;
+      storage_key: string;
+      page_count: number;
+    }
+  >();
+  const missingFixtures: string[] = [];
+  for (const fixture of fixtures) {
     const product = await db.maybeOne<{
       product_id: string;
       product_name: string;
@@ -191,9 +193,18 @@ async function runSuite(): Promise<void> {
       [fixture.articleNumber],
     );
     if (!product) {
-      throw new Error(`fixture ${fixture.product} ${fixture.articleNumber} has no verified manual`);
+      missingFixtures.push(`${fixture.product} ${fixture.articleNumber}`);
+      continue;
     }
+    products.set(fixture.articleNumber, product);
+  }
+  if (missingFixtures.length > 0) {
+    throw new Error(`fixtures missing verified manuals: ${missingFixtures.join(", ")}`);
+  }
 
+  // Finish all no-provider setup before the first billable request.
+  for (const fixture of fixtures) {
+    const product = products.get(fixture.articleNumber)!;
     let pagesReady = false;
     try {
       const pages = await manual.listPageFiles(product.document_id, "vision");
@@ -204,6 +215,22 @@ async function runSuite(): Promise<void> {
     if (!pagesReady) {
       await manual.renderManualPages(product.document_id, product.storage_key);
     }
+  }
+
+  const placeholder = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  const placeholderAssetId = await storage.storeAsset({
+    kind: "scan_image",
+    storageKey: `evals/${batchId}/pinned-product-placeholder.png`,
+    data: placeholder,
+    metadata: { purpose: "orchestrator_eval", batch_id: batchId },
+  });
+
+  const results: EvaluationResult[] = [];
+  for (const [index, fixture] of fixtures.entries()) {
+    const product = products.get(fixture.articleNumber)!;
 
     const scanId = randomUUID();
     await db.query(
@@ -233,6 +260,7 @@ async function runSuite(): Promise<void> {
       scanImageKey: `evals/${batchId}/pinned-product-placeholder.png`,
       userNote: `Isolerat orchestrator-test för ${fixture.product} ${fixture.articleNumber}`,
       pinnedProductId: product.product_id,
+      promptVersion: `eval-v${fixtureFile.version}:${config.orchestratorPromptVersion}:${batchId}`,
       state: {},
     };
     const started = Date.now();
@@ -366,7 +394,6 @@ async function runSuite(): Promise<void> {
   }
 
   console.log(JSON.stringify({ event: "eval_batch_finished", batchId, summary: summarize(results) }, null, 2));
-  await (await db.getPool()).end();
   if (results.some((result) => result.status !== "success")) process.exitCode = 1;
 }
 
@@ -378,6 +405,7 @@ interface Summary {
   goldFixtures: number;
   meanAbsoluteStepDelta: number;
   totalNeedsReview: number;
+  needsReviewDeviation: number;
   turns: number;
   inputTokens: number;
   outputTokens: number;
@@ -412,6 +440,10 @@ function summarize(results: Array<Pick<
           100,
       ) / 100,
     totalNeedsReview: results.reduce((sum, result) => sum + result.actualNeedsReview, 0),
+    needsReviewDeviation: results.reduce(
+      (sum, result) => sum + Math.abs(result.expectedNeedsReview - result.actualNeedsReview),
+      0,
+    ),
     turns: results.reduce((sum, result) => sum + result.turns, 0),
     inputTokens: results.reduce((sum, result) => sum + result.inputTokens, 0),
     outputTokens: results.reduce((sum, result) => sum + result.outputTokens, 0),
@@ -424,6 +456,7 @@ function summarize(results: Array<Pick<
 
 async function readBatch(batchId: string): Promise<EvaluationResult[]> {
   const db = await import("../server/src/db.js");
+  activeDb = db;
   const rows = await db.query<EvalRow>(
     `SELECT article_number, model, effort, prompt_version, status,
             expected_steps, actual_steps, expected_needs_review,
@@ -477,7 +510,7 @@ async function compareBatches(): Promise<void> {
     after.successful >= before.successful &&
     after.exactStepCount >= before.exactStepCount &&
     after.goldExactStepCount >= before.goldExactStepCount &&
-    after.totalNeedsReview <= before.totalNeedsReview;
+    after.needsReviewDeviation <= before.needsReviewDeviation;
   const operationalImprovement =
     after.turns < before.turns ||
     after.estimatedCostUsd < before.estimatedCostUsd ||
@@ -492,6 +525,7 @@ async function compareBatches(): Promise<void> {
     ["Gold exact step count", "goldExactStepCount"],
     ["Mean absolute step delta", "meanAbsoluteStepDelta"],
     ["Needs-review steps", "totalNeedsReview"],
+    ["Needs-review deviation", "needsReviewDeviation"],
     ["Turns", "turns"],
     ["Input tokens", "inputTokens"],
     ["Output tokens", "outputTokens"],
@@ -514,8 +548,6 @@ async function compareBatches(): Promise<void> {
       2,
     ),
   );
-  const db = await import("../server/src/db.js");
-  await (await db.getPool()).end();
   if (verdict !== "pass") process.exitCode = 1;
 }
 
@@ -528,7 +560,14 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    if (activeDb) {
+      const pool = await activeDb.getPool();
+      await pool.end();
+    }
+  });
