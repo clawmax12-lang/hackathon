@@ -36,6 +36,7 @@ export interface ToolContext {
     thumbnailUrl?: string;
     durationSeconds?: number;
     stepCount?: number;
+    deliverableReady?: boolean;
     finished?: { outcome: "success" | "failed"; message: string };
   };
 }
@@ -63,6 +64,7 @@ async function finishFromReadyGuide(ctx: ToolContext, itemNumbers: string[]): Pr
   ctx.state.guideId = cached.guide_id;
   ctx.state.guideTitle = cached.guide_title;
   ctx.state.stepCount = cached.step_count;
+  ctx.state.deliverableReady = true;
 
   await stage(ctx, "reading_label", "done", `Läste art.nr ${cached.item_number}`);
   await stage(ctx, "identifying", "started");
@@ -476,6 +478,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       }
       const res = await synthesizeNarration(ctx.state.guideId);
       ctx.state.stepCount = res.steps.length;
+      ctx.state.deliverableReady = res.steps.length > 0;
       await query("UPDATE assembly_guides SET status='ready',published_at=NOW(),updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
       await stage(ctx, "rendering", "done", `${res.steps.length} ljudsteg klara`);
       return JSON.stringify(res);
@@ -487,6 +490,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         ctx.state.videoUrl = "";
         ctx.state.thumbnailUrl = "";
         ctx.state.durationSeconds = 0;
+        ctx.state.deliverableReady = (ctx.state.stepCount ?? 0) > 0;
         await stage(ctx, "rendering", "done", "Media hoppas över i isolerat kvalitetstest");
         return JSON.stringify({ ok: true, skipped: "media disabled for isolated evaluation" });
       }
@@ -496,6 +500,7 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       ctx.state.videoUrl = res.video_url;
       ctx.state.thumbnailUrl = res.thumbnail_url;
       ctx.state.durationSeconds = res.duration_seconds;
+      ctx.state.deliverableReady = true;
       await stage(ctx, "rendering", "done", `${Math.floor(res.duration_seconds / 60)}:${String(res.duration_seconds % 60).padStart(2, "0")}`);
       return JSON.stringify(res);
     }
@@ -517,8 +522,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
   }
 }
 
+export function enforceDeliverableOutcome(ctx: ToolContext): void {
+  if (
+    ctx.state.finished?.outcome === "success" &&
+    (!ctx.state.guideId || (ctx.state.stepCount ?? 0) < 1 || !ctx.state.deliverableReady)
+  ) {
+    ctx.state.finished = {
+      outcome: "failed",
+      message: "Guiden kunde inte färdigställas. Försök igen om en stund.",
+    };
+  }
+}
+
 /** Emits the terminal SSE events once the orchestrator (real or mock) is done. */
 export async function finalizeRun(ctx: ToolContext): Promise<void> {
+  enforceDeliverableOutcome(ctx);
   const fin = ctx.state.finished;
   if (fin?.outcome === "success" && ctx.state.guideId) {
     const stepCount = ctx.state.stepCount ?? 0;
