@@ -29,11 +29,11 @@ export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 function anthropicEffort(name: string): AnthropicEffort | undefined {
   const value = str(name);
-  if (!value) return undefined;
+  if (!value || value === "default") return undefined;
   if (["low", "medium", "high", "xhigh", "max"].includes(value)) {
     return value as AnthropicEffort;
   }
-  throw new Error(`${name} must be one of: low, medium, high, xhigh, max`);
+  throw new Error(`${name} must be one of: default, low, medium, high, xhigh, max`);
 }
 
 const anthropicApiKey = str("ANTHROPIC_API_KEY");

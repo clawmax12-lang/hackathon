@@ -39,15 +39,15 @@ config "anthropic_orchestrator_prompt_version" {
 }
 
 config "anthropic_effort_orchestrator" {
-  default = ""
+  default = "default"
 }
 
 config "anthropic_effort_vision" {
-  default = ""
+  default = "default"
 }
 
 config "anthropic_effort_qa" {
-  default = ""
+  default = "default"
 }
 
 config "ikea_market" {
