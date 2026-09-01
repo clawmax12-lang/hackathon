@@ -53,8 +53,11 @@ const abort = (reason: Error) => {
 };
 const onSigterm = () => abort(new Error("matrix received SIGTERM"));
 const onSigint = () => abort(new Error("matrix received SIGINT"));
+const onDatabaseError = (error: Error) =>
+  abort(new Error(`matrix database connection failed: ${error.message}`));
 process.once("SIGTERM", onSigterm);
 process.once("SIGINT", onSigint);
+db.on("error", onDatabaseError);
 const heartbeat = setInterval(() => {
   void db
     .query(
@@ -118,6 +121,7 @@ try {
   clearInterval(heartbeat);
   process.off("SIGTERM", onSigterm);
   process.off("SIGINT", onSigint);
+  db.off("error", onDatabaseError);
   activeChild?.kill("SIGTERM");
   await db.end();
 }
