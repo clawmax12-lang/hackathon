@@ -18,12 +18,20 @@ import {
   guidePromptVersion,
 } from "./prompts/system.js";
 import { PROMPT_VERSION as STYLE_PROMPT_VERSION } from "./prompts/style.js";
+import { estimateAnthropicCostUsd } from "./pricing.js";
 import { executeTool, finalizeRun, TOOL_DEFINITIONS, type ToolContext } from "./tools.js";
 
-// claude-opus-5 pricing; close enough for guard purposes on other models.
-const USD_PER_INPUT_TOKEN = 5 / 1_000_000;
-const USD_PER_OUTPUT_TOKEN = 25 / 1_000_000;
-const USD_PER_CACHE_READ_TOKEN = 0.5 / 1_000_000;
+const PINNED_EVAL_TOOLS = new Set([
+  "lookup_catalog",
+  "confirm_match",
+  "plan_assembly_guide",
+  "inspect_manual_region",
+  "write_step_to_db",
+  "synthesize_narration",
+  "render_video",
+  "report_progress",
+  "finish",
+]);
 
 export interface RunOptions {
   jobId: string | null;
@@ -32,10 +40,19 @@ export interface RunOptions {
   maxCostUsd?: number;
 }
 
-export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promise<void> {
+export interface OrchestratorRunMetrics {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promise<OrchestratorRunMetrics> {
   const client = anthropicClient();
   let costUsd = 0;
   let turns = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
   let refusalRetries = 0;
   const deadline = Date.now() + 12 * 60 * 1000;
   const systemPromptVersion = opts.systemPromptVersion ?? config.orchestratorPromptVersion;
@@ -44,6 +61,15 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
   const maxCostUsd = Math.min(opts.maxCostUsd ?? config.maxCostUsd, config.maxCostUsd);
   const systemPrompt = getSystemPrompt(systemPromptVersion);
   ctx.promptVersion ??= guidePromptVersion(systemPromptVersion, STYLE_PROMPT_VERSION);
+  const toolDefinitions = ctx.requiredDocumentId
+    ? TOOL_DEFINITIONS.filter((tool) => "name" in tool && PINNED_EVAL_TOOLS.has(tool.name))
+    : TOOL_DEFINITIONS;
+  const metrics = (): OrchestratorRunMetrics => ({
+    turns,
+    inputTokens,
+    outputTokens,
+    estimatedCostUsd: Number(costUsd.toFixed(6)),
+  });
 
   let initialIdentification: string | null = null;
   if (!ctx.pinnedProductId) {
@@ -52,7 +78,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
       initialIdentification = typeof result === "string" ? result : null;
       if (ctx.state.finished) {
         await finalizeRun(ctx);
-        return;
+        return metrics();
       }
     } catch (err) {
       console.warn(`[orchestrator] fast identification failed for scan ${ctx.scanId}; retrying in tool loop`, err);
@@ -87,7 +113,7 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
         model: config.orchestratorModel,
         max_tokens: 16000,
         system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-        tools: TOOL_DEFINITIONS,
+        tools: toolDefinitions,
         messages,
         ...(effort
           ? { output_config: { effort } }
@@ -98,7 +124,9 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
 
     const inTok = resp.usage.input_tokens + (resp.usage.cache_creation_input_tokens ?? 0);
     const cacheTok = resp.usage.cache_read_input_tokens ?? 0;
-    costUsd += inTok * USD_PER_INPUT_TOKEN + cacheTok * USD_PER_CACHE_READ_TOKEN + resp.usage.output_tokens * USD_PER_OUTPUT_TOKEN;
+    inputTokens += inTok + cacheTok;
+    outputTokens += resp.usage.output_tokens;
+    costUsd += estimateAnthropicCostUsd(resp.model, resp.usage);
     const toolUses = resp.content.filter((block): block is BetaToolUseBlock => block.type === "tool_use");
     if (opts.jobId) {
       await query(
@@ -199,4 +227,5 @@ export async function runOrchestrator(ctx: ToolContext, opts: RunOptions): Promi
     ctx.state.finished = { outcome: "failed", message: "Genereringen tog för många steg och avbröts." };
   }
   await finalizeRun(ctx);
+  return metrics();
 }
