@@ -1,8 +1,7 @@
 {
-  "version": 1,
-  "description": "Twenty verified-manual products for orchestrator prompt and effort comparisons.",
+  "version": 2,
+  "description": "Twenty verified-manual products for orchestrator prompt and effort comparisons. TRANERED is source-adjudicated; the others are historical regression fixtures.",
   "fixtures": [
-    { "articleNumber": "20275814", "product": "KALLAX", "expectedSteps": 16, "expectedNeedsReview": 0, "gold": false },
     {
       "articleNumber": "10609002",
       "product": "TRANERED",
@@ -16,8 +15,19 @@
         "5": ["109067", "100828"],
         "6": ["109067", "100828"]
       },
-      "requiredWarningSteps": [1, 4, 7, 8]
+      "requiredInstructionTokens": {
+        "2": ["10135625", "10087142"],
+        "3": ["10135623", "10087142"],
+        "5": ["109067", "100828"],
+        "6": ["109067", "100828"]
+      },
+      "requiredWarningSteps": [1, 4, 7, 8],
+      "requiredWarningTokens": {
+        "7": ["plant", "vågrätt"],
+        "8": ["3 kg"]
+      }
     },
+    { "articleNumber": "20275814", "product": "KALLAX", "expectedSteps": 16, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "70253541", "product": "AGAM", "expectedSteps": 14, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "10542115", "product": "ELDFLUGA", "expectedSteps": 10, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "70242656", "product": "TJUSIG", "expectedSteps": 11, "expectedNeedsReview": 1, "gold": false },

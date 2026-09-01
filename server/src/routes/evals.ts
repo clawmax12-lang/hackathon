@@ -30,7 +30,7 @@ export const evals = new Hono();
 evals.post("/", (c) => {
   if (!config.orchestratorEvalEnabled) return c.json({ error: "not found" }, 404);
   if (!authorize(c.req.header("Authorization"))) return c.json({ error: "unauthorized" }, 401);
-  if (activeEvaluation?.child.exitCode === null) {
+  if (activeEvaluation?.exitCode === null) {
     return c.json(
       {
         error: "an evaluation is already running",
@@ -115,7 +115,7 @@ evals.get("/", (c) => {
   if (!authorize(c.req.header("Authorization"))) return c.json({ error: "unauthorized" }, 401);
   if (!activeEvaluation) return c.json({ status: "idle" });
   return c.json({
-    status: activeEvaluation.child.exitCode === null ? "running" : "finished",
+    status: activeEvaluation.exitCode === null ? "running" : "finished",
     baselineBatchId: activeEvaluation.baselineBatchId,
     candidateBatchId: activeEvaluation.candidateBatchId,
     startedAt: activeEvaluation.startedAt,

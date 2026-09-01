@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
@@ -11,7 +11,9 @@ interface Fixture {
   gold: boolean;
   expectedPageSequence?: number[];
   requiredPartTokens?: Record<string, string[]>;
+  requiredInstructionTokens?: Record<string, string[]>;
   requiredWarningSteps?: number[];
+  requiredWarningTokens?: Record<string, string[]>;
 }
 
 interface FixtureFile {
@@ -19,11 +21,19 @@ interface FixtureFile {
   fixtures: Fixture[];
 }
 
+interface LoadedFixtureFile extends FixtureFile {
+  hash: string;
+}
+
 interface EvaluationResult {
   batchId: string;
+  suiteVersion: number;
+  fixtureHash: string;
   articleNumber: string;
   product: string;
   gold: boolean;
+  documentId: string;
+  documentChecksum: string;
   model: string;
   effort: string;
   systemPromptVersion: string;
@@ -45,7 +55,11 @@ interface EvaluationResult {
 }
 
 interface EvalRow {
+  suite_version: number;
+  fixture_hash: string;
   article_number: string;
+  document_id: string;
+  document_checksum: string;
   model: string;
   effort: string;
   prompt_version: string;
@@ -78,6 +92,7 @@ const args = parseArgs({
     "max-total-anthropic-usd": { type: "string", default: "25" },
     articles: { type: "string", default: "" },
     "confirm-provider-costs": { type: "boolean", default: false },
+    "allow-fixture-failures": { type: "boolean", default: false },
     "baseline-batch": { type: "string" },
     "candidate-batch": { type: "string" },
     "batch-id": { type: "string" },
@@ -116,14 +131,20 @@ function validateEffort(value: string): void {
   }
 }
 
-async function loadFixtures(filename: string): Promise<FixtureFile> {
-  const parsed = JSON.parse(await fs.readFile(path.resolve(filename), "utf8")) as FixtureFile;
-  if (parsed.version !== 1 || !Array.isArray(parsed.fixtures) || parsed.fixtures.length !== 20) {
-    throw new Error("fixture file must contain exactly 20 version-1 fixtures");
+async function loadFixtures(filename: string): Promise<LoadedFixtureFile> {
+  const raw = await fs.readFile(path.resolve(filename), "utf8");
+  const parsed = JSON.parse(raw) as FixtureFile;
+  if (
+    !Number.isInteger(parsed.version) ||
+    parsed.version < 1 ||
+    !Array.isArray(parsed.fixtures) ||
+    parsed.fixtures.length !== 20
+  ) {
+    throw new Error("fixture file must contain exactly 20 versioned fixtures");
   }
   const articles = new Set(parsed.fixtures.map((fixture) => fixture.articleNumber));
   if (articles.size !== parsed.fixtures.length) throw new Error("fixture article numbers must be unique");
-  return parsed;
+  return { ...parsed, hash: createHash("sha256").update(raw).digest("hex") };
 }
 
 function setRunEnvironment(): void {
@@ -140,6 +161,7 @@ function scoreGrounding(
     step_number: number;
     manual_pages: number[] | null;
     parts: unknown;
+    instruction: string;
     safety_warning: string | null;
   }>,
 ): { passed: number; total: number } {
@@ -149,7 +171,8 @@ function scoreGrounding(
 
   for (const [index, expectedPage] of (fixture.expectedPageSequence ?? []).entries()) {
     total += 1;
-    if (byNumber.get(index + 1)?.manual_pages?.includes(expectedPage)) passed += 1;
+    const pages = byNumber.get(index + 1)?.manual_pages ?? [];
+    if (pages.length === 1 && pages[0] === expectedPage) passed += 1;
   }
   for (const [stepNumber, tokens] of Object.entries(fixture.requiredPartTokens ?? {})) {
     const parts = JSON.stringify(byNumber.get(Number(stepNumber))?.parts ?? []).toLowerCase();
@@ -158,9 +181,23 @@ function scoreGrounding(
       if (parts.includes(token.toLowerCase())) passed += 1;
     }
   }
+  for (const [stepNumber, tokens] of Object.entries(fixture.requiredInstructionTokens ?? {})) {
+    const instruction = byNumber.get(Number(stepNumber))?.instruction?.toLowerCase() ?? "";
+    for (const token of tokens) {
+      total += 1;
+      if (instruction.includes(token.toLowerCase())) passed += 1;
+    }
+  }
   for (const stepNumber of fixture.requiredWarningSteps ?? []) {
     total += 1;
     if (byNumber.get(stepNumber)?.safety_warning?.trim()) passed += 1;
+  }
+  for (const [stepNumber, tokens] of Object.entries(fixture.requiredWarningTokens ?? {})) {
+    const warning = byNumber.get(Number(stepNumber))?.safety_warning?.toLowerCase() ?? "";
+    for (const token of tokens) {
+      total += 1;
+      if (warning.includes(token.toLowerCase())) passed += 1;
+    }
   }
   return { passed, total };
 }
@@ -222,6 +259,7 @@ async function runSuite(): Promise<void> {
       product_id: string;
       product_name: string;
       document_id: string;
+      document_checksum: string;
       storage_key: string;
       page_count: number;
     }
@@ -232,16 +270,20 @@ async function runSuite(): Promise<void> {
       product_id: string;
       product_name: string;
       document_id: string;
+      document_checksum: string;
       storage_key: string;
       page_count: number;
     }>(
       `SELECT p.id AS product_id, p.name AS product_name, sd.id AS document_id,
-              ma.storage_key, sd.page_count
+              sd.checksum_sha256 AS document_checksum, ma.storage_key, sd.page_count
          FROM products p
          JOIN product_documents pd
            ON pd.product_id = p.id AND pd.relationship = 'assembly_manual'
          JOIN source_documents sd
-           ON sd.id = pd.document_id AND sd.status = 'ready' AND sd.page_count > 0
+           ON sd.id = pd.document_id
+          AND sd.status = 'ready'
+          AND sd.page_count > 0
+          AND sd.checksum_sha256 IS NOT NULL
          JOIN media_assets ma
            ON ma.id = sd.asset_id AND ma.storage_key IS NOT NULL
         WHERE regexp_replace(p.ikea_item_number, '\\D', '', 'g') = $1
@@ -331,8 +373,9 @@ async function runSuite(): Promise<void> {
     };
     const started = Date.now();
     let error: string | null = null;
+    let runMetrics: Awaited<ReturnType<typeof orchestrator.runOrchestrator>> | null = null;
     try {
-      await orchestrator.runOrchestrator(ctx, {
+      runMetrics = await orchestrator.runOrchestrator(ctx, {
         jobId: job.id,
         systemPromptVersion: config.orchestratorPromptVersion,
         effort: config.orchestratorEffort,
@@ -373,9 +416,10 @@ async function runSuite(): Promise<void> {
           step_number: number;
           manual_pages: number[] | null;
           parts: unknown;
+          instruction: string;
           safety_warning: string | null;
         }>(
-          `SELECT step_number, manual_pages, parts, safety_warning
+          `SELECT step_number, manual_pages, parts, instruction, safety_warning
              FROM assembly_steps
             WHERE guide_id = $1
             ORDER BY step_number`,
@@ -383,7 +427,7 @@ async function runSuite(): Promise<void> {
         )
       : [];
     const grounding = scoreGrounding(fixture, guideSteps);
-    const usage = await db.one<{
+    const persistedUsage = await db.one<{
       turns: number;
       input_tokens: number;
       output_tokens: number;
@@ -397,6 +441,14 @@ async function runSuite(): Promise<void> {
         WHERE job_id = $1`,
       [job.id],
     );
+    const usage = runMetrics
+      ? {
+          turns: runMetrics.turns,
+          input_tokens: runMetrics.inputTokens,
+          output_tokens: runMetrics.outputTokens,
+          estimated_cost_usd: String(runMetrics.estimatedCostUsd),
+        }
+      : persistedUsage;
     const producedValidGuide =
       guide?.status === "ready" &&
       guide.manual_document_id === product.document_id &&
@@ -421,9 +473,13 @@ async function runSuite(): Promise<void> {
 
     const result: EvaluationResult = {
       batchId,
+      suiteVersion: fixtureFile.version,
+      fixtureHash: fixtureFile.hash,
       articleNumber: fixture.articleNumber,
       product: product.product_name,
       gold: fixture.gold,
+      documentId: product.document_id,
+      documentChecksum: product.document_checksum,
       model: config.orchestratorModel,
       effort,
       systemPromptVersion: config.orchestratorPromptVersion,
@@ -446,18 +502,22 @@ async function runSuite(): Promise<void> {
     spentAnthropicUsd += result.estimatedCostUsd;
     await db.query(
       `INSERT INTO orchestrator_eval_runs
-         (batch_id, suite_version, product_id, scan_id, job_id, article_number,
-          model, effort, prompt_version, status, expected_steps, actual_steps,
-          expected_needs_review, actual_needs_review, grounding_assertions_passed,
-          grounding_assertions_total, turns, input_tokens, output_tokens,
-          estimated_cost_usd, duration_ms, result)
+         (batch_id, suite_version, fixture_hash, product_id, document_id,
+          document_checksum, scan_id, job_id, article_number, model, effort,
+          prompt_version, status, expected_steps, actual_steps,
+          expected_needs_review, actual_needs_review,
+          grounding_assertions_passed, grounding_assertions_total, turns,
+          input_tokens, output_tokens, estimated_cost_usd, duration_ms, result)
        VALUES
          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-          $15, $16, $17, $18, $19, $20, $21, $22::jsonb)`,
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)`,
       [
         batchId,
         fixtureFile.version,
+        fixtureFile.hash,
         product.product_id,
+        product.document_id,
+        product.document_checksum,
         scanId,
         job.id,
         fixture.articleNumber,
@@ -497,7 +557,12 @@ async function runSuite(): Promise<void> {
   }
 
   console.log(JSON.stringify({ event: "eval_batch_finished", batchId, summary: summarize(results) }, null, 2));
-  if (results.some((result) => result.status !== "success")) process.exitCode = 1;
+  if (
+    !args.values["allow-fixture-failures"] &&
+    results.some((result) => result.status !== "success")
+  ) {
+    process.exitCode = 1;
+  }
 }
 
 interface Summary {
@@ -593,7 +658,8 @@ async function readBatch(batchId: string): Promise<EvaluationResult[]> {
   const db = await import("../server/src/db.js");
   activeDb = db;
   const rows = await db.query<EvalRow>(
-    `SELECT article_number, model, effort, prompt_version, status,
+    `SELECT suite_version, fixture_hash, article_number, document_id,
+            document_checksum, model, effort, prompt_version, status,
             expected_steps, actual_steps, expected_needs_review,
             actual_needs_review, grounding_assertions_passed,
             grounding_assertions_total, turns, input_tokens, output_tokens,
@@ -606,9 +672,13 @@ async function readBatch(batchId: string): Promise<EvaluationResult[]> {
   if (rows.length === 0) throw new Error(`no eval rows found for batch ${batchId}`);
   return rows.map((row) => ({
     batchId,
+    suiteVersion: row.suite_version,
+    fixtureHash: row.fixture_hash,
     articleNumber: row.article_number,
     product: row.result.product ?? row.article_number,
     gold: Boolean(row.result.gold),
+    documentId: row.document_id,
+    documentChecksum: row.document_checksum,
     model: row.model,
     effort: row.effort,
     systemPromptVersion: row.prompt_version,
@@ -637,14 +707,22 @@ async function compareBatches(): Promise<void> {
     throw new Error("compare requires --baseline-batch and --candidate-batch");
   }
   const [baseline, candidate] = await Promise.all([readBatch(baselineId), readBatch(candidateId)]);
-  const baselineArticles = baseline.map((row) => row.articleNumber).join(",");
-  const candidateArticles = candidate.map((row) => row.articleNumber).join(",");
-  if (baselineArticles !== candidateArticles) {
-    throw new Error("baseline and candidate batches contain different fixtures");
+  const identity = (row: EvaluationResult) =>
+    [
+      row.suiteVersion,
+      row.fixtureHash,
+      row.articleNumber,
+      row.documentId,
+      row.documentChecksum,
+    ].join(":");
+  if (baseline.map(identity).join("|") !== candidate.map(identity).join("|")) {
+    throw new Error("baseline and candidate batches contain different fixture or document identities");
   }
   const before = summarize(baseline);
   const after = summarize(candidate);
   const fidelityNotWorse =
+    after.goldFixtures > 0 &&
+    after.groundingAssertionsTotal > 0 &&
     after.successful >= before.successful &&
     after.goldExactStepCount >= before.goldExactStepCount &&
     after.goldMeanAbsoluteStepDelta <= before.goldMeanAbsoluteStepDelta &&

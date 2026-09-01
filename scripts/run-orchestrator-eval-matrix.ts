@@ -41,6 +41,7 @@ await run([
   `--limit=${limit}`,
   `--max-total-anthropic-usd=${maxUsdPerBatch}`,
   "--confirm-provider-costs",
+  "--allow-fixture-failures",
 ]);
 
 await run([
@@ -51,6 +52,7 @@ await run([
   `--limit=${limit}`,
   `--max-total-anthropic-usd=${maxUsdPerBatch}`,
   "--confirm-provider-costs",
+  "--allow-fixture-failures",
 ]);
 
 await run([
