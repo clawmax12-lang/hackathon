@@ -1,0 +1,10 @@
+{
+  "name": "Montera (Specific)",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "specific dev",
+      "command": "export PATH=\"$HOME/.local/bin:$PATH\" && specific dev"
+    }
+  ]
+}
