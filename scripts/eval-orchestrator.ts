@@ -311,16 +311,11 @@ async function runSuite(): Promise<void> {
   // Finish all no-provider setup before the first billable request.
   for (const fixture of fixtures) {
     const product = products.get(fixture.articleNumber)!;
-    let pagesReady = false;
-    try {
-      const pages = await manual.listPageFiles(product.document_id, "vision");
-      pagesReady = pages.length === product.page_count;
-    } catch {
-      pagesReady = false;
-    }
-    if (!pagesReady) {
-      await manual.renderManualPages(product.document_id, product.storage_key);
-    }
+    await manual.ensureManualVisionPages(
+      product.document_id,
+      product.storage_key,
+      product.page_count,
+    );
   }
 
   const placeholder = Buffer.from(
