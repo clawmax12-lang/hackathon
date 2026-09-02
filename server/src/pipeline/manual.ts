@@ -17,6 +17,7 @@ const TRANERED_PITCH = {
 const BUNDLED_MANUALS = new Map<string, string>([
   [TRANERED_PITCH.manualUrl, path.resolve(import.meta.dirname, "../../assets/pitch/tranered-manual.pdf")],
 ]);
+export const VISION_MAX_LONG_EDGE = 1568;
 
 export interface DiscoveryResult {
   manual_urls: { url: string; label: string }[];
@@ -126,19 +127,28 @@ async function downloadPdf(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
+async function renderManualPageVariant(
+  documentId: string,
+  pdfStorageKey: string,
+  variant: "video" | "vision",
+  dpi: number,
+): Promise<string[]> {
+  const pdfPath = pathFor(pdfStorageKey);
+  const outDir = pathFor(`pages/${documentId}/${variant}`);
+  await fs.rm(outDir, { recursive: true, force: true });
+  await fs.mkdir(outDir, { recursive: true });
+  const args = ["-png", "-r", String(dpi)];
+  if (variant === "vision") args.push("-scale-to", String(VISION_MAX_LONG_EDGE));
+  args.push(pdfPath, path.join(outDir, "p"));
+  await exec("pdftoppm", args, { timeout: 120000 });
+  return listPageFiles(documentId, variant);
+}
+
 /** Render manual pages to PNG at two resolutions; returns page count rendered. */
 export async function renderManualPages(documentId: string, pdfStorageKey: string): Promise<number> {
-  const pdfPath = pathFor(pdfStorageKey);
-  for (const [variant, dpi] of [
-    ["video", "200"],
-    ["vision", "110"],
-  ] as const) {
-    const outDir = pathFor(`pages/${documentId}/${variant}`);
-    await fs.mkdir(outDir, { recursive: true });
-    await exec("pdftoppm", ["-png", "-r", dpi, pdfPath, path.join(outDir, "p")], { timeout: 120000 });
-  }
-  const files = await fs.readdir(pathFor(`pages/${documentId}/video`));
-  return files.filter((f) => f.endsWith(".png")).length;
+  const videoPages = await renderManualPageVariant(documentId, pdfStorageKey, "video", 200);
+  await renderManualPageVariant(documentId, pdfStorageKey, "vision", 110);
+  return videoPages.length;
 }
 
 export async function listPageFiles(documentId: string, variant: "video" | "vision"): Promise<string[]> {
@@ -148,6 +158,54 @@ export async function listPageFiles(documentId: string, variant: "video" | "visi
     .filter((f) => f.endsWith(".png"))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map((f) => path.join(dir, f));
+}
+
+async function imageSize(file: string): Promise<{ width: number; height: number }> {
+  const { stdout } = await exec(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", file],
+    { timeout: 20_000 },
+  );
+  const [width, height] = stdout.trim().split(",").map(Number);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    throw new Error(`could not read image dimensions: ${file}`);
+  }
+  return { width, height };
+}
+
+/**
+ * Repair old page caches that predate the many-image size cap, and render
+ * missing caches. Every image sent together to Anthropic then stays below the
+ * provider's 2,000-pixel limit with margin.
+ */
+export async function ensureManualVisionPages(
+  documentId: string,
+  pdfStorageKey: string,
+  expectedPageCount: number,
+): Promise<string[]> {
+  let pages: string[] = [];
+  try {
+    pages = await listPageFiles(documentId, "vision");
+  } catch {
+    /* render below */
+  }
+  if (pages.length === expectedPageCount) {
+    let withinLimit = true;
+    for (const page of pages) {
+      const { width, height } = await imageSize(page);
+      if (Math.max(width, height) > VISION_MAX_LONG_EDGE) {
+        withinLimit = false;
+        break;
+      }
+    }
+    if (withinLimit) return pages;
+  }
+
+  pages = await renderManualPageVariant(documentId, pdfStorageKey, "vision", 110);
+  if (pages.length !== expectedPageCount) {
+    throw new Error(`rendered ${pages.length} vision pages; expected ${expectedPageCount}`);
+  }
+  return pages;
 }
 
 export interface NormalizedRegion {

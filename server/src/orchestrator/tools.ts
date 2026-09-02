@@ -9,10 +9,10 @@ import { appendScanEvent, STAGE_INDEX, type ScanEvent, type StageKey } from "../
 import { findReadyGuideByItemNumbers, getProduct, lookupCatalog, registerProductFromWeb } from "../pipeline/catalog.js";
 import {
   discoverManual,
+  ensureManualVisionPages,
   fetchAndVerifyManualPdf,
   getManualDocument,
   inspectManualRegion,
-  listPageFiles,
 } from "../pipeline/manual.js";
 import { identifyProductFromImage } from "../pipeline/identify.js";
 import { synthesizeNarration } from "../pipeline/narration.js";
@@ -364,6 +364,11 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const product = await getProduct(productId);
       const doc = await getManualDocument(documentId, productId);
       if (!product || !doc) return JSON.stringify({ ok: false, error: "unknown product or document" });
+      const pages = await ensureManualVisionPages(
+        documentId,
+        doc.storage_key!,
+        doc.page_count!,
+      );
       const promptVersion = ctx.promptVersion ?? PROMPT_VERSION;
 
       // Reuse the existing guide for this product+manual+prompt (guides are generated once and reused).
@@ -387,7 +392,6 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       ctx.state.productId = productId;
       ctx.state.documentId = documentId;
 
-      const pages = await listPageFiles(documentId, "vision");
       const blocks: ToolResultContentBlock[] = [
         { type: "text", text: STYLE_PROMPT },
         {
