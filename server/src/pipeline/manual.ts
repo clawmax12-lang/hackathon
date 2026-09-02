@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../env.js";
@@ -16,6 +17,7 @@ const TRANERED_PITCH = {
 const BUNDLED_MANUALS = new Map<string, string>([
   [TRANERED_PITCH.manualUrl, path.resolve(import.meta.dirname, "../../assets/pitch/tranered-manual.pdf")],
 ]);
+export const VISION_MAX_LONG_EDGE = 1568;
 
 export interface DiscoveryResult {
   manual_urls: { url: string; label: string }[];
@@ -125,19 +127,28 @@ async function downloadPdf(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
+async function renderManualPageVariant(
+  documentId: string,
+  pdfStorageKey: string,
+  variant: "video" | "vision",
+  dpi: number,
+): Promise<string[]> {
+  const pdfPath = pathFor(pdfStorageKey);
+  const outDir = pathFor(`pages/${documentId}/${variant}`);
+  await fs.rm(outDir, { recursive: true, force: true });
+  await fs.mkdir(outDir, { recursive: true });
+  const args = ["-png", "-r", String(dpi)];
+  if (variant === "vision") args.push("-scale-to", String(VISION_MAX_LONG_EDGE));
+  args.push(pdfPath, path.join(outDir, "p"));
+  await exec("pdftoppm", args, { timeout: 120000 });
+  return listPageFiles(documentId, variant);
+}
+
 /** Render manual pages to PNG at two resolutions; returns page count rendered. */
 export async function renderManualPages(documentId: string, pdfStorageKey: string): Promise<number> {
-  const pdfPath = pathFor(pdfStorageKey);
-  for (const [variant, dpi] of [
-    ["video", "200"],
-    ["vision", "110"],
-  ] as const) {
-    const outDir = pathFor(`pages/${documentId}/${variant}`);
-    await fs.mkdir(outDir, { recursive: true });
-    await exec("pdftoppm", ["-png", "-r", dpi, pdfPath, path.join(outDir, "p")], { timeout: 120000 });
-  }
-  const files = await fs.readdir(pathFor(`pages/${documentId}/video`));
-  return files.filter((f) => f.endsWith(".png")).length;
+  const videoPages = await renderManualPageVariant(documentId, pdfStorageKey, "video", 200);
+  await renderManualPageVariant(documentId, pdfStorageKey, "vision", 110);
+  return videoPages.length;
 }
 
 export async function listPageFiles(documentId: string, variant: "video" | "vision"): Promise<string[]> {
@@ -147,6 +158,109 @@ export async function listPageFiles(documentId: string, variant: "video" | "visi
     .filter((f) => f.endsWith(".png"))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     .map((f) => path.join(dir, f));
+}
+
+async function imageSize(file: string): Promise<{ width: number; height: number }> {
+  const { stdout } = await exec(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", file],
+    { timeout: 20_000 },
+  );
+  const [width, height] = stdout.trim().split(",").map(Number);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    throw new Error(`could not read image dimensions: ${file}`);
+  }
+  return { width, height };
+}
+
+/**
+ * Repair old page caches that predate the many-image size cap, and render
+ * missing caches. Every image sent together to Anthropic then stays below the
+ * provider's 2,000-pixel limit with margin.
+ */
+export async function ensureManualVisionPages(
+  documentId: string,
+  pdfStorageKey: string,
+  expectedPageCount: number,
+): Promise<string[]> {
+  let pages: string[] = [];
+  try {
+    pages = await listPageFiles(documentId, "vision");
+  } catch {
+    /* render below */
+  }
+  if (pages.length === expectedPageCount) {
+    let withinLimit = true;
+    for (const page of pages) {
+      const { width, height } = await imageSize(page);
+      if (Math.max(width, height) > VISION_MAX_LONG_EDGE) {
+        withinLimit = false;
+        break;
+      }
+    }
+    if (withinLimit) return pages;
+  }
+
+  pages = await renderManualPageVariant(documentId, pdfStorageKey, "vision", 110);
+  if (pages.length !== expectedPageCount) {
+    throw new Error(`rendered ${pages.length} vision pages; expected ${expectedPageCount}`);
+  }
+  return pages;
+}
+
+export interface NormalizedRegion {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export function validateNormalizedRegion(region: NormalizedRegion): void {
+  const { x0, y0, x1, y1 } = region;
+  if (![x0, y0, x1, y1].every(Number.isFinite)) {
+    throw new Error("region coordinates must be finite numbers");
+  }
+  if (x0 < 0 || y0 < 0 || x1 > 1 || y1 > 1 || x0 >= x1 || y0 >= y1) {
+    throw new Error("region must satisfy 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1");
+  }
+  if (x1 - x0 < 0.03 || y1 - y0 < 0.03) {
+    throw new Error("region must cover at least 3% of the page in each dimension");
+  }
+}
+
+/**
+ * Crop a normalized region from an already-rendered manual page and enlarge
+ * it for a second vision pass. The temporary file is deleted after reading.
+ */
+export async function inspectManualRegion(
+  documentId: string,
+  page: number,
+  region: NormalizedRegion,
+): Promise<Buffer> {
+  validateNormalizedRegion(region);
+  const pages = await listPageFiles(documentId, "video");
+  if (!Number.isInteger(page) || page < 1 || page > pages.length) {
+    throw new Error(`page must be an integer between 1 and ${pages.length}`);
+  }
+
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "monterra-manual-region-"));
+  const output = path.join(workDir, "region.png");
+  const width = region.x1 - region.x0;
+  const height = region.y1 - region.y0;
+  const filter =
+    `crop=iw*${width}:ih*${height}:iw*${region.x0}:ih*${region.y0},` +
+    "scale=2048:2048:force_original_aspect_ratio=decrease:flags=lanczos";
+
+  try {
+    await exec(
+      "ffmpeg",
+      ["-loglevel", "error", "-y", "-i", pages[page - 1], "-vf", filter, "-frames:v", "1", output],
+      { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    );
+    return await fs.readFile(output);
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -207,11 +321,20 @@ export async function fetchAndVerifyManualPdf(url: string, productId: string): P
   return { document_id: doc.id, page_count: pageCount, ok: true, failure_reason: null };
 }
 
-export async function getManualDocument(documentId: string) {
+export async function getManualDocument(documentId: string, productId: string) {
   return maybeOne<{ id: string; canonical_url: string; page_count: number | null; storage_key: string | null; checksum_sha256: string | null }>(
     `SELECT sd.id, sd.canonical_url, sd.page_count, ma.storage_key, sd.checksum_sha256
-       FROM source_documents sd LEFT JOIN media_assets ma ON ma.id = sd.asset_id
-      WHERE sd.id = $1`,
-    [documentId],
+       FROM source_documents sd
+       JOIN product_documents pd
+         ON pd.document_id = sd.id
+        AND pd.product_id = $2
+        AND pd.relationship = 'assembly_manual'
+       JOIN media_assets ma
+         ON ma.id = sd.asset_id
+        AND ma.storage_key IS NOT NULL
+      WHERE sd.id = $1
+        AND sd.status = 'ready'
+        AND sd.page_count > 0`,
+    [documentId, productId],
   );
 }

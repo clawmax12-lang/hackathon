@@ -1,10 +1,19 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type {
+  BetaTool,
+  BetaToolResultBlockParam,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import fs from "node:fs/promises";
 import { config } from "../env.js";
 import { maybeOne, one, query } from "../db.js";
 import { appendScanEvent, STAGE_INDEX, type ScanEvent, type StageKey } from "../sse.js";
 import { findReadyGuideByItemNumbers, getProduct, lookupCatalog, registerProductFromWeb } from "../pipeline/catalog.js";
-import { discoverManual, fetchAndVerifyManualPdf, getManualDocument, listPageFiles } from "../pipeline/manual.js";
+import {
+  discoverManual,
+  ensureManualVisionPages,
+  fetchAndVerifyManualPdf,
+  getManualDocument,
+  inspectManualRegion,
+} from "../pipeline/manual.js";
 import { identifyProductFromImage } from "../pipeline/identify.js";
 import { synthesizeNarration } from "../pipeline/narration.js";
 import { renderVideo } from "../pipeline/render.js";
@@ -15,6 +24,9 @@ export interface ToolContext {
   scanImageKey: string;
   userNote: string | null;
   pinnedProductId: string | null;
+  promptVersion?: string;
+  requiredDocumentId?: string;
+  mediaMode?: "full" | "skip";
   state: {
     productId?: string;
     documentId?: string;
@@ -24,6 +36,7 @@ export interface ToolContext {
     thumbnailUrl?: string;
     durationSeconds?: number;
     stepCount?: number;
+    deliverableReady?: boolean;
     finished?: { outcome: "success" | "failed"; message: string };
   };
 }
@@ -51,6 +64,7 @@ async function finishFromReadyGuide(ctx: ToolContext, itemNumbers: string[]): Pr
   ctx.state.guideId = cached.guide_id;
   ctx.state.guideTitle = cached.guide_title;
   ctx.state.stepCount = cached.step_count;
+  ctx.state.deliverableReady = true;
 
   await stage(ctx, "reading_label", "done", `Läste art.nr ${cached.item_number}`);
   await stage(ctx, "identifying", "started");
@@ -75,7 +89,7 @@ async function finishFromReadyGuide(ctx: ToolContext, itemNumbers: string[]): Pr
   return true;
 }
 
-export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
+export const TOOL_DEFINITIONS: BetaTool[] = [
   {
     name: "identify_product_from_image",
     description: "Run vision analysis on the user's scan photo: OCR all text and infer the IKEA product family.",
@@ -208,6 +222,24 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "inspect_manual_region",
+    description:
+      "Crop and enlarge a hard-to-read part of the current verified manual page. Coordinates are normalized from 0 to 1, measured from the page's top-left corner.",
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["document_id", "page", "x0", "y0", "x1", "y1"],
+      properties: {
+        document_id: { type: "string" },
+        page: { type: "integer", minimum: 1 },
+        x0: { type: "number", minimum: 0, maximum: 1 },
+        y0: { type: "number", minimum: 0, maximum: 1 },
+        x1: { type: "number", minimum: 0, maximum: 1 },
+        y1: { type: "number", minimum: 0, maximum: 1 },
+      },
+    },
+  },
+  {
     name: "synthesize_narration",
     description: "Generate ElevenLabs narration audio for every written step plus intro/outro.",
     input_schema: { type: "object", additionalProperties: false, properties: {}, required: [] },
@@ -245,7 +277,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
 ];
 
-type ToolResultContent = string | Anthropic.ContentBlockParam[];
+type ToolResultContent = Exclude<BetaToolResultBlockParam["content"], undefined>;
+type ToolResultContentBlock = Exclude<ToolResultContent, string>[number];
 
 export async function executeTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResultContent> {
   switch (name) {
@@ -325,14 +358,23 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       await stage(ctx, "planning", "started");
       const productId = String(input.product_id);
       const documentId = String(input.document_id);
+      if (ctx.requiredDocumentId && documentId !== ctx.requiredDocumentId) {
+        return JSON.stringify({ ok: false, error: "this run is pinned to a different verified manual" });
+      }
       const product = await getProduct(productId);
-      const doc = await getManualDocument(documentId);
+      const doc = await getManualDocument(documentId, productId);
       if (!product || !doc) return JSON.stringify({ ok: false, error: "unknown product or document" });
+      const pages = await ensureManualVisionPages(
+        documentId,
+        doc.storage_key!,
+        doc.page_count!,
+      );
+      const promptVersion = ctx.promptVersion ?? PROMPT_VERSION;
 
       // Reuse the existing guide for this product+manual+prompt (guides are generated once and reused).
       const existing = await maybeOne<{ id: string }>(
         `SELECT id FROM assembly_guides WHERE product_id = $1 AND manual_document_id = $2 AND prompt_version = $3 LIMIT 1`,
-        [productId, documentId, PROMPT_VERSION],
+        [productId, documentId, promptVersion],
       );
       const guide = existing
         ? await one<{ id: string }>(
@@ -343,15 +385,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
             `INSERT INTO assembly_guides (product_id, manual_document_id, status, language, title, summary, generator_provider, generator_model, prompt_version, source_fingerprint)
              VALUES ($1, $2, 'generating', 'sv', $3, $4, 'anthropic', $5, $6, $7)
              RETURNING id`,
-            [productId, documentId, String(input.title), String(input.summary), config.orchestratorModel, PROMPT_VERSION, doc.checksum_sha256 ?? ""],
+            [productId, documentId, String(input.title), String(input.summary), config.orchestratorModel, promptVersion, doc.checksum_sha256 ?? ""],
           );
       ctx.state.guideId = guide.id;
       ctx.state.guideTitle = String(input.title);
       ctx.state.productId = productId;
       ctx.state.documentId = documentId;
 
-      const pages = await listPageFiles(documentId, "vision");
-      const blocks: Anthropic.ContentBlockParam[] = [
+      const blocks: ToolResultContentBlock[] = [
         { type: "text", text: STYLE_PROMPT },
         {
           type: "text",
@@ -371,6 +412,31 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
         });
       }
       return blocks;
+    }
+
+    case "inspect_manual_region": {
+      const documentId = String(input.document_id);
+      if (!ctx.state.documentId || documentId !== ctx.state.documentId) {
+        return JSON.stringify({ ok: false, error: "only the current verified manual may be inspected" });
+      }
+      const page = Number(input.page);
+      const region = {
+        x0: Number(input.x0),
+        y0: Number(input.y0),
+        x1: Number(input.x1),
+        y1: Number(input.y1),
+      };
+      const image = await inspectManualRegion(documentId, page, region);
+      return [
+        {
+          type: "text",
+          text: `Enlarged crop from manual page ${page}; coordinates ${region.x0},${region.y0} to ${region.x1},${region.y1}.`,
+        },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: image.toString("base64") },
+        },
+      ];
     }
 
     case "write_step_to_db": {
@@ -409,8 +475,14 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
       const count = await maybeOne<{ n: string }>("SELECT count(*) n FROM assembly_steps WHERE guide_id = $1", [ctx.state.guideId]);
       await stage(ctx, "planning", "done", `${count?.n ?? "?"} steg planerade`);
       await stage(ctx, "rendering", "started", "Skapar berättarröst…");
+      if (ctx.mediaMode === "skip") {
+        ctx.state.stepCount = Number(count?.n ?? 0);
+        await query("UPDATE assembly_guides SET status='ready',updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
+        return JSON.stringify({ ok: true, skipped: "media disabled for isolated evaluation" });
+      }
       const res = await synthesizeNarration(ctx.state.guideId);
       ctx.state.stepCount = res.steps.length;
+      ctx.state.deliverableReady = res.steps.length > 0;
       await query("UPDATE assembly_guides SET status='ready',published_at=NOW(),updated_at=NOW() WHERE id=$1", [ctx.state.guideId]);
       await stage(ctx, "rendering", "done", `${res.steps.length} ljudsteg klara`);
       return JSON.stringify(res);
@@ -418,12 +490,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
 
     case "render_video": {
       if (!ctx.state.guideId) return JSON.stringify({ ok: false, error: "no guide yet" });
+      if (ctx.mediaMode === "skip") {
+        ctx.state.videoUrl = "";
+        ctx.state.thumbnailUrl = "";
+        ctx.state.durationSeconds = 0;
+        ctx.state.deliverableReady = (ctx.state.stepCount ?? 0) > 0;
+        await stage(ctx, "rendering", "done", "Media hoppas över i isolerat kvalitetstest");
+        return JSON.stringify({ ok: true, skipped: "media disabled for isolated evaluation" });
+      }
       const res = await renderVideo(ctx.state.guideId, (done, total, label) =>
         void emit(ctx, { type: "render_progress", done, total, label }).catch((error) => console.error("[scan-events] render progress", error)),
       );
       ctx.state.videoUrl = res.video_url;
       ctx.state.thumbnailUrl = res.thumbnail_url;
       ctx.state.durationSeconds = res.duration_seconds;
+      ctx.state.deliverableReady = true;
       await stage(ctx, "rendering", "done", `${Math.floor(res.duration_seconds / 60)}:${String(res.duration_seconds % 60).padStart(2, "0")}`);
       return JSON.stringify(res);
     }
@@ -445,8 +526,21 @@ export async function executeTool(name: string, input: Record<string, unknown>, 
   }
 }
 
+export function enforceDeliverableOutcome(ctx: ToolContext): void {
+  if (
+    ctx.state.finished?.outcome === "success" &&
+    (!ctx.state.guideId || (ctx.state.stepCount ?? 0) < 1 || !ctx.state.deliverableReady)
+  ) {
+    ctx.state.finished = {
+      outcome: "failed",
+      message: "Guiden kunde inte färdigställas. Försök igen om en stund.",
+    };
+  }
+}
+
 /** Emits the terminal SSE events once the orchestrator (real or mock) is done. */
 export async function finalizeRun(ctx: ToolContext): Promise<void> {
+  enforceDeliverableOutcome(ctx);
   const fin = ctx.state.finished;
   if (fin?.outcome === "success" && ctx.state.guideId) {
     const stepCount = ctx.state.stepCount ?? 0;

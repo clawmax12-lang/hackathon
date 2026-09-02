@@ -1,0 +1,39 @@
+# Record the controls and outcome of every Anthropic turn so prompt/model
+# changes can be compared without parsing logs.
+
+[[actions]]
+type = "add_column"
+table = "job_attempts"
+
+  [actions.column]
+  name = "effort"
+  type = "TEXT"
+  nullable = true
+
+[[actions]]
+type = "add_column"
+table = "job_attempts"
+
+  [actions.column]
+  name = "stop_reason"
+  type = "TEXT"
+  nullable = true
+
+[[actions]]
+type = "add_column"
+table = "job_attempts"
+
+  [actions.column]
+  name = "prompt_version"
+  type = "TEXT"
+  nullable = true
+
+[[actions]]
+type = "add_column"
+table = "job_attempts"
+
+  [actions.column]
+  name = "tool_calls_in_turn"
+  type = "INTEGER"
+  nullable = false
+  default = "0"

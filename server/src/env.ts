@@ -25,6 +25,34 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+const EFFORT_MODEL_PREFIXES = [
+  "claude-fable-5",
+  "claude-mythos-5",
+  "claude-mythos-preview",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+];
+
+export function modelSupportsEffort(model: string): boolean {
+  return EFFORT_MODEL_PREFIXES.some((prefix) => model.startsWith(prefix));
+}
+
+function anthropicEffort(name: string): AnthropicEffort | undefined {
+  const value = str(name);
+  if (!value || value === "default") return undefined;
+  if (["low", "medium", "high", "xhigh", "max"].includes(value)) {
+    return value as AnthropicEffort;
+  }
+  throw new Error(`${name} must be one of: default, low, medium, high, xhigh, max`);
+}
+
 const anthropicApiKey = str("ANTHROPIC_API_KEY");
 
 export const config = {
@@ -36,6 +64,10 @@ export const config = {
   anthropicWorkspaceId: str("ANTHROPIC_WORKSPACE_ID"),
   orchestratorModel: str("ANTHROPIC_ORCHESTRATOR_MODEL", "claude-opus-5"),
   visionModel: str("ANTHROPIC_VISION_MODEL", "claude-haiku-4-5"),
+  orchestratorPromptVersion: str("ANTHROPIC_ORCHESTRATOR_PROMPT_VERSION", "monterra-system-v2"),
+  orchestratorEffort: anthropicEffort("ANTHROPIC_EFFORT_ORCHESTRATOR"),
+  visionEffort: anthropicEffort("ANTHROPIC_EFFORT_VISION"),
+  qaEffort: anthropicEffort("ANTHROPIC_EFFORT_QA"),
 
   elevenLabsApiKey: str("ELEVENLABS_API_KEY"),
   // "Adam Composer Stockholm" — Stockholm-accented voice already in this account.
@@ -73,5 +105,15 @@ export const config = {
 
   sampleDir: path.resolve(import.meta.dirname, "../assets/sample"),
 };
+
+for (const [setting, effort, model] of [
+  ["ANTHROPIC_EFFORT_ORCHESTRATOR", config.orchestratorEffort, config.orchestratorModel],
+  ["ANTHROPIC_EFFORT_QA", config.qaEffort, config.orchestratorModel],
+  ["ANTHROPIC_EFFORT_VISION", config.visionEffort, config.visionModel],
+] as const) {
+  if (effort && !modelSupportsEffort(model)) {
+    throw new Error(`${setting} requires a model that supports effort; ${model} does not`);
+  }
+}
 
 export type Config = typeof config;

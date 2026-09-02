@@ -49,6 +49,7 @@ export async function answerQuestion(guideId: string, question: string): Promise
   const resp = await client.messages.create({
     model: config.orchestratorModel,
     max_tokens: 1200,
+    ...(config.qaEffort ? { output_config: { effort: config.qaEffort } } : {}),
     system: `Du är en lugn och hjälpsam monteringscoach för "${guide.product_name}". Guiden: ${guide.title}. ${guide.summary ?? ""}
 Stegen:
 ${stepsText}
