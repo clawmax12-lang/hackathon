@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "description": "Twenty verified-manual products for orchestrator prompt and effort comparisons. TRANERED is source-adjudicated; the others are historical regression fixtures.",
   "fixtures": [
     {
@@ -27,7 +27,7 @@
         "8": ["3 kg"]
       }
     },
-    { "articleNumber": "20275814", "product": "KALLAX", "expectedSteps": 16, "expectedNeedsReview": 0, "gold": false },
+    { "articleNumber": "10203610", "product": "MALM", "expectedSteps": 20, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "70253541", "product": "AGAM", "expectedSteps": 14, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "10542115", "product": "ELDFLUGA", "expectedSteps": 10, "expectedNeedsReview": 0, "gold": false },
     { "articleNumber": "70242656", "product": "TJUSIG", "expectedSteps": 11, "expectedNeedsReview": 1, "gold": false },
