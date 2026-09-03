@@ -29,6 +29,133 @@ function authorize(authorization: string | undefined): boolean {
   return isAuthorizedEvalRequest(authorization, config.orchestratorEvalToken);
 }
 
+function runEvaluator(args: string[], matrixId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "scripts/eval-orchestrator.ts", ...args],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, ORCHESTRATOR_EVAL_MATRIX_ID: matrixId },
+        stdio: "inherit",
+      },
+    );
+    evalChildren.add(child);
+    child.once("error", (error) => {
+      evalChildren.delete(child);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      evalChildren.delete(child);
+      if (code === 0) resolve();
+      else reject(new Error(`eval command exited ${code ?? signal ?? "unknown"}`));
+    });
+  });
+}
+
+async function executeMatrix(opts: {
+  matrixId: string;
+  baselineBatchId: string;
+  candidateBatchId: string;
+  limit: number;
+  maxUsdPerBatch: number;
+}): Promise<void> {
+  let leaseError: Error | null = null;
+  const heartbeat = setInterval(() => {
+    void query<{ id: string }>(
+      `UPDATE orchestrator_eval_matrices
+          SET heartbeat_at = now()
+        WHERE id = $1 AND status = 'running'
+      RETURNING id`,
+      [opts.matrixId],
+    )
+      .then((rows) => {
+        if (rows.length !== 1) {
+          leaseError = new Error("matrix lease ownership was lost");
+          for (const child of evalChildren) child.kill("SIGTERM");
+        }
+      })
+      .catch((error) => {
+        leaseError = new Error(`matrix heartbeat failed: ${(error as Error).message}`);
+        for (const child of evalChildren) child.kill("SIGTERM");
+      });
+  }, 15_000);
+  const checkLease = () => {
+    if (leaseError) throw leaseError;
+  };
+  const runArgs = (batchId: string, promptVersion: string, effort: string) => [
+    "run",
+    `--batch-id=${batchId}`,
+    `--prompt-version=${promptVersion}`,
+    `--effort=${effort}`,
+    `--limit=${opts.limit}`,
+    `--max-total-anthropic-usd=${opts.maxUsdPerBatch}`,
+    "--confirm-provider-costs",
+    "--allow-fixture-failures",
+  ];
+
+  try {
+    await runEvaluator(
+      runArgs(opts.baselineBatchId, "monterra-system-v2", "default"),
+      opts.matrixId,
+    );
+    checkLease();
+    await runEvaluator(
+      runArgs(opts.candidateBatchId, "monterra-system-v3", "high"),
+      opts.matrixId,
+    );
+    checkLease();
+    await runEvaluator(
+      [
+        "compare",
+        `--baseline-batch=${opts.baselineBatchId}`,
+        `--candidate-batch=${opts.candidateBatchId}`,
+      ],
+      opts.matrixId,
+    );
+    checkLease();
+    await query(
+      `UPDATE orchestrator_eval_matrices
+          SET status = 'succeeded', exit_code = 0,
+              completed_at = now(), heartbeat_at = now()
+        WHERE id = $1 AND status = 'running'`,
+      [opts.matrixId],
+    );
+    console.info(
+      JSON.stringify({
+        event: "orchestrator_eval_matrix_finished",
+        matrix_id: opts.matrixId,
+        baseline_batch_id: opts.baselineBatchId,
+        candidate_batch_id: opts.candidateBatchId,
+        exit_code: 0,
+      }),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await query(
+      `UPDATE orchestrator_eval_matrices
+          SET status = 'failed', exit_code = 1, completed_at = now(),
+              heartbeat_at = now(), error_message = $2
+        WHERE id = $1 AND status = 'running'`,
+      [opts.matrixId, message.slice(0, 500)],
+    ).catch((persistError) =>
+      console.error("[orchestrator-evals] failed to persist matrix failure", persistError),
+    );
+    console.info(
+      JSON.stringify({
+        event: "orchestrator_eval_matrix_finished",
+        matrix_id: opts.matrixId,
+        baseline_batch_id: opts.baselineBatchId,
+        candidate_batch_id: opts.candidateBatchId,
+        exit_code: 1,
+        error: message,
+      }),
+    );
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
 export const evals = new Hono();
 
 evals.post("/", async (c) => {
@@ -87,56 +214,12 @@ evals.post("/", async (c) => {
     );
   }
 
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", "scripts/run-orchestrator-eval-matrix.ts"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        ORCHESTRATOR_EVAL_MATRIX_ID: matrixId,
-        ORCHESTRATOR_EVAL_BASELINE_BATCH_ID: baselineBatchId,
-        ORCHESTRATOR_EVAL_CANDIDATE_BATCH_ID: candidateBatchId,
-        ORCHESTRATOR_EVAL_LIMIT: String(config.orchestratorEvalLimit),
-        ORCHESTRATOR_EVAL_MAX_ANTHROPIC_USD_PER_BATCH: String(
-          config.orchestratorEvalMaxAnthropicUsdPerBatch,
-        ),
-      },
-      stdio: "inherit",
-    },
-  );
-  evalChildren.add(child);
-  child.once("exit", (code) => {
-    evalChildren.delete(child);
-    const exitCode = code ?? 1;
-    void query(
-      `UPDATE orchestrator_eval_matrices
-          SET status = CASE WHEN $2 = 0 THEN 'succeeded' ELSE 'failed' END,
-              exit_code = $2, completed_at = now(), heartbeat_at = now()
-        WHERE id = $1 AND status = 'running'`,
-      [matrixId, exitCode],
-    ).catch((error) => console.error("[orchestrator-evals] failed to persist exit", error));
-    console.info(
-      JSON.stringify({
-        event: "orchestrator_eval_matrix_finished",
-        baseline_batch_id: baselineBatchId,
-        candidate_batch_id: candidateBatchId,
-        exit_code: exitCode,
-      }),
-    );
-  });
-  child.once("error", (error) => {
-    evalChildren.delete(child);
-    console.error("[orchestrator-evals] matrix process failed to start", error);
-    void query(
-      `UPDATE orchestrator_eval_matrices
-          SET status = 'failed', exit_code = 1, completed_at = now(),
-              heartbeat_at = now(), error_message = $2
-        WHERE id = $1 AND status = 'running'`,
-      [matrixId, error.message.slice(0, 500)],
-    ).catch((persistError) =>
-      console.error("[orchestrator-evals] failed to persist spawn error", persistError),
-    );
+  void executeMatrix({
+    matrixId,
+    baselineBatchId,
+    candidateBatchId,
+    limit: config.orchestratorEvalLimit,
+    maxUsdPerBatch: config.orchestratorEvalMaxAnthropicUsdPerBatch,
   });
 
   console.info(

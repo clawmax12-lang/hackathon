@@ -144,9 +144,9 @@ service "api" {
     ELEVENLABS_API_KEY             = secret.elevenlabs_api_key
     FIRECRAWL_API_KEY              = secret.firecrawl_api_key
     ORCHESTRATOR_EVAL_TOKEN        = secret.orchestrator_eval_token
-    ORCHESTRATOR_EVAL_ENABLED      = "true"
-    ORCHESTRATOR_EVAL_LIMIT        = "2"
-    ORCHESTRATOR_EVAL_MAX_ANTHROPIC_USD_PER_BATCH = "5"
+    ORCHESTRATOR_EVAL_ENABLED      = config.orchestrator_eval_enabled
+    ORCHESTRATOR_EVAL_LIMIT        = config.orchestrator_eval_limit
+    ORCHESTRATOR_EVAL_MAX_ANTHROPIC_USD_PER_BATCH = config.orchestrator_eval_max_anthropic_usd_per_batch
     GUIDE_PRICE_SEK                = config.guide_price_sek
     IKEA_MARKET                    = config.ikea_market
     IKEA_LANGUAGE                  = config.ikea_language
@@ -157,12 +157,12 @@ service "api" {
 cron "orchestrator-evals" {
   build    = build.api
   command  = "node --import tsx scripts/trigger-orchestrator-eval.ts"
-  schedule = "8 20 3 9 *"
+  schedule = "0 0 1 1 *"
 
   env = {
     ORCHESTRATOR_EVAL_TRIGGER_URL  = "http://${service.api.private_url}/api/internal/orchestrator-evals"
     ORCHESTRATOR_EVAL_TOKEN        = secret.orchestrator_eval_token
-    ORCHESTRATOR_EVAL_ENABLED      = "true"
+    ORCHESTRATOR_EVAL_ENABLED      = config.orchestrator_eval_enabled
   }
 }
 
