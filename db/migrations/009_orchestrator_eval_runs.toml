@@ -1,0 +1,76 @@
+# Persist one row per fixture execution so prompt/model/effort comparisons
+# survive the one-off evaluator process inside a preview environment.
+
+[[actions]]
+type = "custom"
+start = """
+CREATE TABLE orchestrator_eval_matrices (
+  id UUID PRIMARY KEY,
+  baseline_batch_id UUID NOT NULL,
+  candidate_batch_id UUID NOT NULL,
+  status TEXT NOT NULL,
+  fixture_limit INTEGER NOT NULL,
+  max_anthropic_usd_per_batch NUMERIC(12,6) NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  exit_code INTEGER,
+  error_message TEXT,
+  CONSTRAINT orchestrator_eval_matrices_status
+    CHECK (status IN ('running', 'succeeded', 'failed')),
+  CONSTRAINT orchestrator_eval_matrices_limits
+    CHECK (
+      fixture_limit BETWEEN 1 AND 20
+      AND max_anthropic_usd_per_batch > 0
+    )
+);
+
+CREATE UNIQUE INDEX orchestrator_eval_matrices_single_running_idx
+  ON orchestrator_eval_matrices ((true))
+  WHERE status = 'running';
+
+CREATE TABLE orchestrator_eval_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  matrix_id UUID REFERENCES orchestrator_eval_matrices(id),
+  batch_id UUID NOT NULL,
+  suite_version INTEGER NOT NULL,
+  fixture_hash TEXT NOT NULL,
+  product_id UUID NOT NULL REFERENCES products(id),
+  document_id UUID NOT NULL REFERENCES source_documents(id),
+  document_checksum TEXT NOT NULL,
+  scan_id UUID NOT NULL REFERENCES furniture_scans(id),
+  job_id UUID NOT NULL REFERENCES ingestion_jobs(id),
+  article_number TEXT NOT NULL,
+  model TEXT NOT NULL,
+  effort TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  expected_steps INTEGER NOT NULL,
+  actual_steps INTEGER NOT NULL,
+  expected_needs_review INTEGER NOT NULL,
+  actual_needs_review INTEGER NOT NULL,
+  grounding_assertions_passed INTEGER NOT NULL,
+  grounding_assertions_total INTEGER NOT NULL,
+  turns INTEGER NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  estimated_cost_usd NUMERIC(12,6) NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  result JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX orchestrator_eval_runs_comparison_idx
+  ON orchestrator_eval_runs (batch_id, prompt_version, model, effort, created_at);
+
+ALTER TABLE orchestrator_eval_runs
+  ADD CONSTRAINT orchestrator_eval_runs_nonnegative
+  CHECK (
+    expected_steps >= 0 AND actual_steps >= 0
+    AND expected_needs_review >= 0 AND actual_needs_review >= 0
+    AND grounding_assertions_passed >= 0
+    AND grounding_assertions_total >= grounding_assertions_passed
+    AND turns >= 0 AND input_tokens >= 0 AND output_tokens >= 0
+    AND estimated_cost_usd >= 0 AND duration_ms >= 0
+  );
+"""

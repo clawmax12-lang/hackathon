@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "check": "tsc -b --pretty false",
     "test:server": "node --import tsx --test server/src/**/*.test.ts",
+    "eval:orchestrator": "node --import tsx scripts/eval-orchestrator.ts",
     "preview": "vite preview --host 0.0.0.0",
     "start": "serve dist -l $PORT"
   },

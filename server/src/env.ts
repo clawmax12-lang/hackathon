@@ -100,6 +100,14 @@ export const config = {
   maxCostUsd: Number(process.env.PIPELINE_MAX_COST_USD ?? "3.0"),
   includeMusic: str("INCLUDE_MUSIC", "0") === "1",
 
+  orchestratorEvalToken: str("ORCHESTRATOR_EVAL_TOKEN"),
+  orchestratorEvalEnabled: str("ORCHESTRATOR_EVAL_ENABLED", "false") === "true",
+  orchestratorEvalLimit: Math.min(20, num("ORCHESTRATOR_EVAL_LIMIT", 2)),
+  orchestratorEvalMaxAnthropicUsdPerBatch: Math.min(
+    60,
+    num("ORCHESTRATOR_EVAL_MAX_ANTHROPIC_USD_PER_BATCH", 25),
+  ),
+
   market: str("IKEA_MARKET", "se"),
   language: str("IKEA_LANGUAGE", "sv"),
 
